@@ -33,7 +33,6 @@ def load_history():
                 data = json.load(f)
                 return {str(k): v for k, v in data.items()}
         except Exception as e:
-            print(f"Ошибка чтения истории: {e}")
             return {}
     return {}
 
@@ -46,13 +45,11 @@ def save_history(history_dict):
 
 def get_gigachat_token():
     if not giga_client_id or not giga_client_secret:
-        print("Ошибка: не заданы GIGACHAT_CLIENT_ID или GIGACHAT_CLIENT_SECRET")
         return None
     try:
         import base64
         cid = giga_client_id.strip()
         csecret = giga_client_secret.strip()
-        
         auth_str = f"{cid}:{csecret}"
         auth_b64 = base64.b64encode(auth_str.encode()).decode()
         
@@ -64,20 +61,16 @@ def get_gigachat_token():
             'Authorization': f'Basic {auth_b64}'
         }
         payload = 'scope=GIGACHAT_API_PERS'
-        
         response = requests.post(url, headers=headers, data=payload, verify=False, timeout=30)
         
         if response.status_code == 200:
             return response.json().get('access_token')
-        else:
-            print(f"Ошибка авторизации GigaChat. Статус: {response.status_code}")
-            return None
+        return None
     except Exception as e:
         print(f"Ошибка получения токена GigaChat: {e}")
         return None
 
 def rewrite_text(text, token):
-    """Переписывает текст и добавляет комментарий автора"""
     if not token or not text:
         return text
     try:
@@ -86,12 +79,11 @@ def rewrite_text(text, token):
             'Content-Type': 'application/json',
             'Authorization': f'Bearer {token}'
         }
-        
         prompt = (
             f"Ты — опытный редактор популярного новостного Telegram-канала. Твоя задача — взять сырой текст новости и сделать из него качественный, цепляющий пост.\n"
-            f"1. Перепиши текст своими словами (сделай рерайт), сохранив все факты и смысл, но убрав канцелярит. Сделай текст коротким и удобным для чтения.\n"
-            f"2. В конце добавь пустую строку и напиши короткий (1-2 предложения) комментарий от лица автора канала. Комментарий должен быть сдержанным, но живым — как мнение умного человека, который наблюдает за ситуацией (с легкой долей иронии, если это уместно по контексту, но без злого сарказма и пошлости).\n"
-            f"3. ВАЖНО: Верни только готовый текст. Не пиши вводных слов вроде 'Вот ваш текст:', не используй кавычки для всего текста.\n\n"
+            f"1. Перепиши текст своими словами, сохранив все факты и смысл, но убрав канцелярит.\n"
+            f"2. В конце добавь пустую строку и напиши короткий (1-2 предложения) живой комментарий от лица автора канала.\n"
+            f"3. ВАЖНО: Верни только готовый текст. Не пиши вводных слов и не используй кавычки для всего текста.\n\n"
             f"Исходный текст:\n{text}"
         )
         
@@ -108,20 +100,28 @@ def rewrite_text(text, token):
         if 'choices' in result:
             rewritten = result['choices'][0]['message']['content'].strip()
             
+            # Расширенный список отказов и странных ответов
             refusal_markers = [
                 "Генеративные языковые модели", 
                 "не обладают собственным мнением",
                 "чувствительным темам",
                 "временно ограничены",
-                "Благодарим за понимание"
+                "Благодарим за понимание",
+                "хрупкость", # Защита от философских галлюцинаций
+                "здравый смысл возобладает"
             ]
             
-            if any(marker in rewritten for marker in refusal_markers):
-                print(f"GigaChat отказался переписывать пост. Пропускаем.")
+            # Если ответ слишком короткий или содержит маркеры отказа — пропускаем
+            if any(marker in rewritten for marker in refusal_markers) or len(rewritten) < 20:
+                print(f"GigaChat выдал странный ответ или отказ. Пропускаем.")
                 return None 
 
+            # Убираем внешние кавычки, если нейросеть их поставила
             if rewritten.startswith('"') and rewritten.endswith('"'):
                 rewritten = rewritten[1:-1]
+            if rewritten.startswith('«') and rewritten.endswith('»'):
+                rewritten = rewritten[1:-1]
+                
             return rewritten
         else:
             return text
@@ -130,13 +130,10 @@ def rewrite_text(text, token):
         return text 
 
 def clean_universal(text):
-    """Универсальная очистка от всех ссылок и упоминаний"""
     if not text:
         return text
-    
     text = re.sub(r'@\w+', '', text)
     text = re.sub(r'https?://\S+', '', text)
-    
     subscribe_patterns = [
         r'[Пп]одписаться[^\n]*', 
         r'[Пп]одписывайтесь[^\n]*',
@@ -146,12 +143,9 @@ def clean_universal(text):
     ]
     for pattern in subscribe_patterns:
         text = re.sub(pattern, '', text)
-    
     text = re.sub(r'\n\s*\n', '\n\n', text).strip()
-    
     if len(text) < 5:
         return None
-        
     return text
 
 async def main():
@@ -160,7 +154,7 @@ async def main():
 
     giga_token = get_gigachat_token()
     if giga_token:
-        print("Токен GigaChat получен. Рерайт включен.")
+        print("Токен GigaChat получен.")
     else:
         print("ВНИМАНИЕ: Токен GigaChat не получен.")
 
@@ -172,69 +166,40 @@ async def main():
             messages = await client.get_messages(source_channel, limit=5)
             
             for msg in reversed(messages):
-                
-                # --- ФИЛЬТР РЕКЛАМЫ ---
                 text_to_check = (msg.text or "").lower()
-                ad_keywords = [
-                    'реклама', 'erid', 'промокод', 'скидка', 
-                    'подписывайся', 'переходи по ссылке', 'интеграция',
-                    '@futuread', 'купить', 'заказать', 'цена', 'прайс'
-                ]
+                ad_keywords = ['реклама', 'erid', 'промокод', 'скидка', 'подписывайся', 'переходи по ссылке', 'интеграция', '@futuread', 'купить', 'заказать', 'цена', 'прайс']
                 if any(word in text_to_check for word in ad_keywords):
-                    print(f"Пропущен рекламный пост {msg.id}")
                     continue
 
                 if str(msg.id) in copied_ids:
-                    print(f"Пост {msg.id} уже есть в истории. Пропускаем.")
                     continue
                 
                 try:
                     final_text = msg.text or ""
                     
-                    # 1. Очищаем текст от ссылок ДО отправки в GigaChat
                     if final_text:
                         final_text = clean_universal(final_text)
                     
                     if final_text is None:
-                         print(f"Пост {msg.id} пропущен (в оригинале были только ссылки).")
                          continue
 
-                    # 2. Отправляем чистый текст в GigaChat
                     if final_text and giga_token:
-                        print(f"Переписываем текст поста {msg.id}...")
                         final_text = rewrite_text(final_text, giga_token)
                     
                     if giga_token and final_text is None:
-                        print(f"Пост {msg.id} пропущен (фильтр GigaChat).")
                         continue
 
-                    # 3. Отправляем медиа с превью (обложкой)
+                    # --- ОТПРАВКА МЕДИА (БЕЗ ПРИНУДИТЕЛЬНОГО ПРЕВЬЮ) ---
                     if msg.media:
                         file_path = await msg.download_media(file="/tmp/")
                         if file_path:
-                            thumb_path = None
-                            
-                            # Пытаемся найти превью для видео
-                            if hasattr(msg.media, 'document') and msg.media.document:
-                                for attr in msg.media.document.attributes:
-                                    if hasattr(attr, 'thumb') and attr.thumb:
-                                        thumb_path = await client.download_media(attr.thumb, file="/tmp/thumb_")
-                                        break
-                            
-                            # Отправляем файл с превью и поддержкой стриминга
+                            # Отправляем без параметра thumb, чтобы Telegram сам обработал видео
                             await client.send_file(
                                 target_channel, 
                                 file_path, 
-                                caption=final_text,
-                                thumb=thumb_path,
-                                supports_streaming=True
+                                caption=final_text
                             )
-                            
-                            # Удаляем временные файлы
                             os.remove(file_path)
-                            if thumb_path and os.path.exists(thumb_path):
-                                os.remove(thumb_path)
-                                
                             print(f"Скопировано медиа (пост {msg.id})")
                     elif final_text:
                         await client.send_message(target_channel, final_text)
