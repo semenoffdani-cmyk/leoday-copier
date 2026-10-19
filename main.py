@@ -87,7 +87,6 @@ def rewrite_text(text, token):
             'Authorization': f'Bearer {token}'
         }
         
-        # Промпт: редактор + сдержанный, но живой комментарий
         prompt = (
             f"Ты — опытный редактор популярного новостного Telegram-канала. Твоя задача — взять сырой текст новости и сделать из него качественный, цепляющий пост.\n"
             f"1. Перепиши текст своими словами (сделай рерайт), сохранив все факты и смысл, но убрав канцелярит. Сделай текст коротким и удобным для чтения.\n"
@@ -210,27 +209,19 @@ async def main():
                         continue
 
                     # 3. Отправляем медиа с превью (обложкой)
-                                        if msg.media:
-                        # Скачиваем само видео/фото
+                    if msg.media:
                         file_path = await msg.download_media(file="/tmp/")
                         if file_path:
-                            # Пытаемся найти и скачать превью (обложку) из оригинального сообщения
                             thumb_path = None
                             
-                            # Если это видео или документ, ищем миниатюру в его атрибутах
+                            # Пытаемся найти превью для видео
                             if hasattr(msg.media, 'document') and msg.media.document:
                                 for attr in msg.media.document.attributes:
-                                    # У видео может быть атрибут thumb (обложка)
                                     if hasattr(attr, 'thumb') and attr.thumb:
                                         thumb_path = await client.download_media(attr.thumb, file="/tmp/thumb_")
                                         break
-                            # Если это фото внутри сообщения
-                            elif hasattr(msg.media, 'photo') and msg.media.photo:
-                                # Для фото превью не нужно, оно само по себе картинка
-                                pass
                             
-                            # Отправляем файл. Если thumb_path найден, передаем его.
-                            # Также добавляем supports_streaming=True, чтобы видео можно было смотреть онлайн.
+                            # Отправляем файл с превью и поддержкой стриминга
                             await client.send_file(
                                 target_channel, 
                                 file_path, 
@@ -239,7 +230,7 @@ async def main():
                                 supports_streaming=True
                             )
                             
-                            # Чистим временные файлы
+                            # Удаляем временные файлы
                             os.remove(file_path)
                             if thumb_path and os.path.exists(thumb_path):
                                 os.remove(thumb_path)
