@@ -8,7 +8,6 @@ import urllib3
 from telethon import TelegramClient
 from telethon.sessions import StringSession
 
-# Отключаем предупреждения о небезопасном соединении (нужно для GigaChat)
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 # =====================================================================
@@ -21,22 +20,19 @@ target_channel = os.environ['TARGET_CHANNEL']
 giga_client_id = os.environ.get('GIGACHAT_CLIENT_ID')
 giga_client_secret = os.environ.get('GIGACHAT_CLIENT_SECRET')
 
-
 # =====================================================================
-# 👇👇👇 ШАГ 1: ИСТОЧНИКИ ДЛЯ ФИНАНСОВОГО КАНАЛА 👇👇👇
+# 👇👇👇 ШАГ 1: ИСТОЧНИКИ 👇👇👇
 # =====================================================================
-# Безопасные официальные и деловые каналы:
 priority_channels = ['@rian_ru', '@prime1', '@cbrf_official'] 
 secondary_channels = [] 
 
 source_channels = priority_channels + secondary_channels
 # =====================================================================
 
-
 HISTORY_FILE = 'history.json'
 
 # =====================================================================
-# 👇👇👇 ШАГ 2: ОЧИСТКА ТЕКСТА 👇👇👇
+# 👇👇👇 ШАГ 2: ОЧИСТКА ТЕКСТА (ИСПРАВЛЕНО) 👇👇👇
 # =====================================================================
 def clean_universal(text):
     if not text:
@@ -45,21 +41,26 @@ def clean_universal(text):
     # 1. Удаляем HTML-теги
     text = re.sub(r'<[^>]+>', '', text)
     
-    # 2. Удаляем @упоминания и ссылки
+    # 2. КРИТИЧЕСКОЕ ИСПРАВЛЕНИЕ: Удаляем скрытые ссылки Telegram [текст](ссылка)
+    # Оставляем только текст внутри скобок
+    text = re.sub(r'\[([^\]]+)\]\([^\)]+\)', r'\1', text)
+    
+    # 3. Удаляем оставшиеся @упоминания и обычные ссылки
     text = re.sub(r'@\w+', '', text)
     text = re.sub(r'https?://\S+', '', text)
     
-    # 3. Удаляем названия каналов (безопасно, через re.escape)
+    # 4. Удаляем одинокие скобки (те самые [ и ])
+    text = text.replace('[', '').replace(']', '')
+    
+    # 5. Удаляем названия каналов
     channel_names = [
-        'РИА Новости', 'rian_ru',
-        'ПРАЙМ', 'prime1',
-        'Банк России', 'cbrf_official'
+        'РИА Новости', 'rian_ru', 'ПРАЙМ', 'prime1', 'Банк России', 'cbrf_official'
     ]
     for name in channel_names:
         safe_name = re.escape(name)
         text = re.sub(r'\b' + safe_name + r'\b[:,]?\s*', '', text, flags=re.IGNORECASE)
     
-    # 4. Удаляем призывы к подписке
+    # 6. Удаляем призывы к подписке
     subscribe_patterns = [
         r'[Пп]одписаться[^\n]*', r'[Пп]одписывайтесь[^\n]*',
         r'[Пп]ерейти в канал[^\n]*', r'[Чч]итать далее[^\n]*', r'[Ии]сточник[^\n]*'
@@ -67,17 +68,15 @@ def clean_universal(text):
     for pattern in subscribe_patterns:
         text = re.sub(pattern, '', text)
     
-    # 5. Убираем лишние пустые строки
+    # 7. Убираем лишние пустые строки
     text = re.sub(r'\n\s*\n', '\n\n', text).strip()
     
-    # 6. Проверка на осмысленный текст
     if len(text) < 5 or not re.search(r'[а-яА-Яa-zA-Z]', text):
         return "" 
     return text
 
-
 # =====================================================================
-# 👇👇👇 ШАГ 3: НЕЙРОСЕТЬ (РЕРАЙТ + АНАЛИТИКА) 👇👇👇
+# 👇👇👇 ШАГ 3: НЕЙРОСЕТЬ (УЛУЧШЕННЫЙ ПРОМПТ) 👇👇👇
 # =====================================================================
 def get_gigachat_token():
     if not giga_client_id or not giga_client_secret:
@@ -116,19 +115,20 @@ def rewrite_text(text, token):
             'Authorization': f'Bearer {token}'
         }
         
-        # Идеальный промпт для финансового канала
+        # Улучшенный промпт: просим исправить ошибки и не ломать структуру
         prompt = (
-            f"Ты — профессиональный финансовый аналитик. Твоя задача — взять суть новости и объяснить её простым, понятным языком. "
-            f"1. Если в тексте есть сложные термины (ключевая ставка, инфляция, б.п.), обязательно объясни их в двух словах. "
-            f"2. Объясни практические последствия: как эта новость может повлиять на финансы, сбережения или бизнес обычного человека. "
-            f"3. Строго 2-3 предложения. Не копируй оригинальный текст, перескажи только суть. "
-            f"Верни только готовый текст без кавычек, звездочек и лишних вводных слов:\n\n{text}"
+            f"Ты — профессиональный финансовый редактор. Твоя задача — сделать из этого текста красивый и понятный пост. "
+            f"1. Исправь грамматические ошибки и обрывы текста, если они есть в оригинале (например, если предложение не закончено). "
+            f"2. Перескажи суть новости простым языком (2-3 предложения). "
+            f"3. Если в тексте есть сложные финансовые термины, кратко объясни их. "
+            f"4. Не используй никакую разметку: никаких звездочек (**), квадратных скобок ([]) и ссылок. "
+            f"Верни только готовый текст:\n\n{text}"
         )
         
         payload = {
             "model": "GigaChat",
             "messages": [{"role": "user", "content": prompt}],
-            "temperature": 0.4, 
+            "temperature": 0.3, # Понизили температуру, чтобы нейросеть меньше "фантазировала"
             "max_tokens": 700   
         }
         
@@ -138,7 +138,6 @@ def rewrite_text(text, token):
         if 'choices' in result:
             rewritten = result['choices'][0]['message']['content'].strip()
             
-            # Защита от отказов и пустых ответов нейросети
             refusal_markers = [
                 "Генеративные языковые модели", "не обладают собственным мнением",
                 "чувствительным темам", "временно ограничены", "Благодарим за понимание"
@@ -147,8 +146,10 @@ def rewrite_text(text, token):
             if any(marker in rewritten for marker in refusal_markers) or len(rewritten) < 15:
                 return None 
 
-            # Очистка от Markdown-разметки и кавычек
+            # Финальная зачистка от случайных символов
             rewritten = re.sub(r'[*_`#]', '', rewritten)
+            rewritten = rewritten.replace('[', '').replace(']', '')
+            
             if rewritten.startswith('"') and rewritten.endswith('"'):
                 rewritten = rewritten[1:-1]
             if rewritten.startswith('«') and rewritten.endswith('»'):
@@ -161,16 +162,14 @@ def rewrite_text(text, token):
         print(f"Ошибка рерайта GigaChat: {e}")
         return text 
 
-
 # =====================================================================
-# 👇👇👇 ШАГ 4: ОСНОВНАЯ ЛОГИКА (МАКСИМАЛЬНАЯ ОТКАЗОУСТОЙЧИВОСТЬ) 👇👇👇
+# 👇👇👇 ШАГ 4: ОСНОВНАЯ ЛОГИКА 👇👇👇
 # =====================================================================
 def load_history():
     if os.path.exists(HISTORY_FILE):
         try:
             with open(HISTORY_FILE, 'r', encoding='utf-8') as f:
                 data = json.load(f)
-                # Ограничиваем историю 5000 записями
                 if len(data) > 5000:
                     data = dict(list(data.items())[-5000:])
                 return {str(k): v for k, v in data.items()}
@@ -186,7 +185,6 @@ def save_history(history_dict):
         print(f"Ошибка сохранения истории: {e}")
 
 async def process_message(msg, source_channel, client, copied_ids, target_texts, giga_token):
-    # Уникальный ключ (канал_айди) для защиты от совпадения ID
     history_key = f"{source_channel.replace('@', '')}_{msg.id}"
     
     if history_key in copied_ids:
@@ -224,7 +222,6 @@ async def process_message(msg, source_channel, client, copied_ids, target_texts,
             try:
                 file_path = await msg.download_media(file="/tmp/")
                 if file_path:
-                    # Защита от лимита Telegram (1024 символа на подпись)
                     if final_text and len(final_text) > 1024:
                         await client.send_file(target_channel, file_path)
                         await client.send_message(target_channel, final_text)
