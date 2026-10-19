@@ -210,29 +210,36 @@ async def main():
                         continue
 
                     # 3. Отправляем медиа с превью (обложкой)
-                    if msg.media:
+                                        if msg.media:
+                        # Скачиваем само видео/фото
                         file_path = await msg.download_media(file="/tmp/")
                         if file_path:
+                            # Пытаемся найти и скачать превью (обложку) из оригинального сообщения
                             thumb_path = None
                             
-                            # Пытаемся найти превью для видео/документа
-                            if hasattr(msg.media, 'photo') and msg.media.photo:
-                                thumb_path = await client.download_media(msg.media.photo, file="/tmp/thumb_")
-                            elif hasattr(msg.media, 'document') and msg.media.document:
+                            # Если это видео или документ, ищем миниатюру в его атрибутах
+                            if hasattr(msg.media, 'document') and msg.media.document:
                                 for attr in msg.media.document.attributes:
+                                    # У видео может быть атрибут thumb (обложка)
                                     if hasattr(attr, 'thumb') and attr.thumb:
                                         thumb_path = await client.download_media(attr.thumb, file="/tmp/thumb_")
                                         break
+                            # Если это фото внутри сообщения
+                            elif hasattr(msg.media, 'photo') and msg.media.photo:
+                                # Для фото превью не нужно, оно само по себе картинка
+                                pass
                             
-                            # Отправляем файл
+                            # Отправляем файл. Если thumb_path найден, передаем его.
+                            # Также добавляем supports_streaming=True, чтобы видео можно было смотреть онлайн.
                             await client.send_file(
                                 target_channel, 
                                 file_path, 
                                 caption=final_text,
-                                thumb=thumb_path
+                                thumb=thumb_path,
+                                supports_streaming=True
                             )
                             
-                            # Удаляем временные файлы
+                            # Чистим временные файлы
                             os.remove(file_path)
                             if thumb_path and os.path.exists(thumb_path):
                                 os.remove(thumb_path)
