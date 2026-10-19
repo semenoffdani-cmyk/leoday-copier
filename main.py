@@ -128,10 +128,28 @@ def rewrite_text(text, token):
         return text 
 
 def clean_universal(text):
+    """Универсальная очистка от ссылок, упоминаний и названий каналов"""
     if not text:
         return text
+    
+    # 1. Удаляем все @упоминания
     text = re.sub(r'@\w+', '', text)
+    
+    # 2. Удаляем все HTTP/HTTPS ссылки
     text = re.sub(r'https?://\S+', '', text)
+    
+    # 3. Удаляем названия каналов-источников (даже без @)
+    channel_names = [
+        r'Топор Live', 
+        r'Топор', 
+        r'Леодай', 
+        r'Леонардо Дайвинчик'
+    ]
+    for name in channel_names:
+        # Удаляем название и всё, что идет после него до конца строки или до знака препинания
+        text = re.sub(name + r'[^\n.!?]*[.!?]?', '', text, flags=re.IGNORECASE)
+    
+    # 4. Удаляем фразы, призывающие подписаться
     subscribe_patterns = [
         r'[Пп]одписаться[^\n]*', 
         r'[Пп]одписывайтесь[^\n]*',
@@ -141,9 +159,14 @@ def clean_universal(text):
     ]
     for pattern in subscribe_patterns:
         text = re.sub(pattern, '', text)
+    
+    # 5. Убираем лишние пустые строки и пробелы
     text = re.sub(r'\n\s*\n', '\n\n', text).strip()
+    
+    # 6. Если после очистки осталось слишком мало текста, возвращаем None
     if len(text) < 5:
         return None
+        
     return text
 
 async def main():
@@ -179,23 +202,24 @@ async def main():
                 try:
                     final_text = msg.text or ""
                     
+                    # Очищаем оригинальный текст от ссылок и названий
                     if final_text:
                         final_text = clean_universal(final_text)
                     
                     if final_text is None:
                          continue
 
+                    # Отправляем в GigaChat
                     if final_text and giga_token:
                         final_text = rewrite_text(final_text, giga_token)
                     
                     if giga_token and final_text is None:
                         continue
 
-                    # --- ЗАЩИТА ОТ ДУБЛЕЙ (проверка по нашему каналу) ---
+                    # Защита от дублей (проверка по нашему каналу)
                     if any(final_text[:50] in t for t in target_texts):
                         print(f"Пост {msg.id} пропущен (такой текст уже есть в канале).")
                         continue
-                    # ----------------------------------------------------
 
                     # Отправка медиа без принудительного превью
                     if msg.media:
