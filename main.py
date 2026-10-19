@@ -32,7 +32,7 @@ giga_client_secret = os.environ.get('GIGACHAT_CLIENT_SECRET')
 # 
 # ВАЖНО: Ваш аккаунт Telegram должен быть подписан на все эти каналы!
 # =====================================================================
-source_channels = ['@topor', '@toporlive'] 
+source_channels = ['@topor', '@toporlive', '@memachh'] 
 # =====================================================================
 
 
@@ -57,7 +57,9 @@ def clean_universal(text):
         r'Топор Live', 
         r'Топор', 
         r'Леодай', 
-        r'Леонардо Дайвинчик'
+        r'Леонардо Дайвинчик',
+        r'МЕМАЧ',
+        r'memachh'
         # 👇 ВПИСЫВАТЬ НОВЫЕ НАЗВАНИЯ СЮДА, например: r'Новый Канал'
     ]
     for name in channel_names:
@@ -77,8 +79,9 @@ def clean_universal(text):
     # 5. Убираем лишние пустые строки
     text = re.sub(r'\n\s*\n', '\n\n', text).strip()
     
+    # Если после очистки осталось мало текста, возвращаем пустую строку (но не None!)
     if len(text) < 5:
-        return None
+        return "" 
         
     return text
 
@@ -123,13 +126,6 @@ def rewrite_text(text, token):
             'Authorization': f'Bearer {token}'
         }
         
-        # =====================================================================
-        # ⚠️ ВОТ ЗДЕСЬ МЕНЯЕТСЯ СТИЛЬ КОММЕНТАРИЕВ ⚠️
-        # =====================================================================
-        # Если хотите изменить стиль комментария, просто отредактируйте текст 
-        # в пункте "2." внутри переменной prompt ниже.
-        # Например, замените "живой" на "ироничный" или "сдержанный".
-        # =====================================================================
         prompt = (
             f"Ты — опытный редактор популярного новостного Telegram-канала. Твоя задача — взять сырой текст новости и сделать из него качественный, цепляющий пост.\n"
             f"1. Перепиши текст своими словами, сохранив все факты и смысл, но убрав канцелярит.\n"
@@ -231,29 +227,39 @@ async def main():
                 try:
                     final_text = msg.text or ""
                     
+                    # Очищаем текст от ссылок и названий
                     if final_text:
                         final_text = clean_universal(final_text)
                     
-                    if final_text is None:
-                         continue
+                    # Если текст пустой (были только ссылки) и медиа НЕТ — пропускаем
+                    if not final_text and not msg.media:
+                        continue
 
+                    # Отправляем в GigaChat (только если есть текст)
                     if final_text and giga_token:
                         final_text = rewrite_text(final_text, giga_token)
                     
-                    if giga_token and final_text is None:
+                    # Если GigaChat отказался переписывать, но есть медиа, отправляем медиа без текста
+                    if final_text is None and msg.media:
+                        final_text = ""
+                    
+                    # Если GigaChat отказался, и медиа нет — пропускаем
+                    if final_text is None and not msg.media:
                         continue
 
-                    if any(final_text[:50] in t for t in target_texts):
+                    # Защита от дублей (проверка по нашему каналу, только если есть текст)
+                    if final_text and any(final_text[:50] in t for t in target_texts):
                         print(f"Пост {msg.id} пропущен (такой текст уже есть в канале).")
                         continue
 
+                    # Отправка медиа или текста
                     if msg.media:
                         file_path = await msg.download_media(file="/tmp/")
                         if file_path:
                             await client.send_file(
                                 target_channel, 
                                 file_path, 
-                                caption=final_text
+                                caption=final_text if final_text else None
                             )
                             os.remove(file_path)
                             print(f"Скопировано медиа (пост {msg.id})")
