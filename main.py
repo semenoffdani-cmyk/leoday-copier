@@ -31,7 +31,7 @@ print(f"ПРОВЕРКА: SECRET = {giga_client_secret is not None}")
 # ПРИМЕР: source_channels = ['@leoday', '@Топор18']
 # ВАЖНО: не забудьте про кавычки и символ @ !
 #
-source_channels = ['@leoday'] 
+source_channels = ['@leoday','@topor'] 
 #
 # 👆👆👆 ВОТ СЮДА ВСТАВЛЯТЬ НАЗВАНИЕ ВТОРОГО КАНАЛА 👆👆👆
 # ⬆️⬆️⬆️⬆️⬆️⬆️⬆️⬆️⬆️⬆️⬆️⬆️⬆️⬆️⬆️⬆️⬆️⬆️⬆️⬆️⬆️⬆️⬆️⬆️⬆️⬆️⬆️⬆️⬆️⬆️⬆️⬆️⬆️
