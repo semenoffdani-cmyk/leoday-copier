@@ -189,7 +189,16 @@ async def main():
                     
                     if giga_token and final_text is None:
                         continue
-
+                    # --- ЗАЩИТА ОТ ДУБЛЕЙ ИЗ РАЗНЫХ КАНАЛОВ ---
+                    # Проверяем, есть ли уже такой текст в нашей истории (по первым 50 символам)
+                    is_duplicate_text = any(
+                        final_text[:50] in str(v) or str(v)[:50] in final_text 
+                        for v in copied_ids.values() if isinstance(v, str)
+                    )
+                    if is_duplicate_text:
+                        print(f"Пост {msg.id} пропущен (такой текст уже был в истории).")
+                        continue
+                    # ------------------------------------------
                     # Отправка медиа без принудительного превью (чтобы не было пустого экрана)
                     if msg.media:
                         file_path = await msg.download_media(file="/tmp/")
