@@ -12,13 +12,11 @@ async def main():
     async with TelegramClient(StringSession(session), api_id, api_hash) as client:
         print("Подключение к каналу для очистки дублей...")
         
-        # Получаем последние 200 сообщений из ВАШЕГО канала
         messages = await client.get_messages(target_channel, limit=200)
         
         seen_texts = {} 
         deleted_count = 0
 
-        # Проходим по сообщениям от старых к новым
         for msg in reversed(messages):
             text = msg.text
             if not text or len(text) < 20:
@@ -27,7 +25,6 @@ async def main():
             if text in seen_texts:
                 old_msg_id = seen_texts[text]
                 try:
-                    # Удаляем старый дубль из канала
                     await client.delete_messages(target_channel, old_msg_id)
                     print(f"Удален дубль (старый ID: {old_msg_id}, оставлен новый ID: {msg.id})")
                     deleted_count += 1
