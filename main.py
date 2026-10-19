@@ -7,6 +7,7 @@ import urllib3
 from telethon import TelegramClient
 from telethon.sessions import StringSession
 
+# Отключаем предупреждения о небезопасном соединении (для GigaChat)
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 api_id = int(os.environ['API_ID'])
@@ -14,13 +15,22 @@ api_hash = os.environ['API_HASH']
 session = os.environ['SESSION']
 target_channel = os.environ['TARGET_CHANNEL']
 
+# Данные для GigaChat
 giga_client_id = os.environ.get('GIGACHAT_CLIENT_ID')
 giga_client_secret = os.environ.get('GIGACHAT_CLIENT_SECRET')
 
 # =====================================================================
-# ⬇️⬇️⬇️ ВСТАВЛЯТЬ НАЗВАНИЯ КАНАЛОВ СЮДА ⬇️⬇️⬇️
-source_channels = ['@leoday'] 
-# ⬆️⬆️⬆️ ВСТАВЛЯТЬ НАЗВАНИЯ КАНАЛОВ СЮДА ⬆️⬆️⬆️
+# ⬇️⬇️⬇️⬇️⬇️⬇️⬇️⬇️⬇️⬇️⬇️⬇️⬇️⬇️⬇️⬇️⬇️⬇️⬇️⬇️⬇️⬇️⬇️⬇️⬇️⬇️⬇️⬇️⬇️⬇️⬇️⬇️⬇️
+# 👇👇👇 ВОТ СЮДА ВСТАВЛЯТЬ НАЗВАНИЕ ВТОРОГО КАНАЛА 👇👇👇
+#
+# Чтобы добавить второй канал, напишите его юзернейм через запятую.
+# ПРИМЕР: source_channels = ['@leoday', '@topor']
+# ВАЖНО: не забудьте про кавычки и символ @ !
+#
+source_channels = ['@leoday', '@topor'] 
+#
+# 👆👆👆 ВОТ СЮДА ВСТАВЛЯТЬ НАЗВАНИЕ ВТОРОГО КАНАЛА 👆👆👆
+# ⬆️⬆️⬆️⬆️⬆️⬆️⬆️⬆️⬆️⬆️⬆️⬆️⬆️⬆️⬆️⬆️⬆️⬆️⬆️⬆️⬆️⬆️⬆️⬆️⬆️⬆️⬆️⬆️⬆️⬆️⬆️⬆️⬆️
 # =====================================================================
 
 HISTORY_FILE = 'history.json'
@@ -30,7 +40,6 @@ def load_history():
         try:
             with open(HISTORY_FILE, 'r', encoding='utf-8') as f:
                 data = json.load(f)
-                # Превращаем ключи (ID) в строки для надежности
                 return {str(k): v for k, v in data.items()}
         except Exception as e:
             print(f"Ошибка чтения истории: {e}")
@@ -45,6 +54,7 @@ def save_history(history_dict):
         print(f"Ошибка сохранения истории: {e}")
 
 def get_gigachat_token():
+    """Получает токен доступа для GigaChat"""
     if not giga_client_id or not giga_client_secret:
         print("Ошибка: не заданы GIGACHAT_CLIENT_ID или GIGACHAT_CLIENT_SECRET")
         return None
@@ -65,18 +75,21 @@ def get_gigachat_token():
         }
         payload = 'scope=GIGACHAT_API_PERS'
         
-        response = requests.post(url, headers=headers, data=payload, verify=False, timeout=15)
+        # Если вы используете прокси, добавьте его сюда: proxies=proxies
+        response = requests.post(url, headers=headers, data=payload, verify=False, timeout=30)
         
         if response.status_code == 200:
             return response.json().get('access_token')
         else:
             print(f"Ошибка авторизации GigaChat. Статус: {response.status_code}")
             return None
+            
     except Exception as e:
         print(f"Ошибка получения токена GigaChat: {e}")
         return None
 
 def rewrite_text(text, token):
+    """Отправляет текст в GigaChat для переписывания"""
     if not token or not text:
         return text
     try:
@@ -94,21 +107,34 @@ def rewrite_text(text, token):
             "max_tokens": 500
         }
         
-        response = requests.post(url, headers=headers, json=payload, verify=False, timeout=30)
+        # Если вы используете прокси, добавьте его сюда: proxies=proxies
+        response = requests.post(url, headers=headers, json=payload, verify=False, timeout=60)
         result = response.json()
         
         if 'choices' in result:
             rewritten = result['choices'][0]['message']['content'].strip()
             
-            if "Генеративные языковые модели" in rewritten or "не обладают собственным мнением" in rewritten:
-                print(f"GigaChat отказался переписывать пост. Пост будет пропущен.")
+            # --- УМНАЯ ПРОВЕРКА НА ЛЮБОЙ ОТКАЗ GIGACHAT ---
+            refusal_markers = [
+                "Генеративные языковые модели", 
+                "не обладают собственным мнением",
+                "чувствительным темам",
+                "временно ограничены",
+                "Благодарим за понимание"
+            ]
+            
+            if any(marker in rewritten for marker in refusal_markers):
+                print(f"GigaChat отказался переписывать пост (сработал фильтр). Пост будет пропущен.")
                 return None 
+            # -----------------------------------------------
 
             if rewritten.startswith('"') and rewritten.endswith('"'):
                 rewritten = rewritten[1:-1]
             return rewritten
         else:
+            print(f"Неожиданный ответ от GigaChat: {result}")
             return text
+            
     except Exception as e:
         print(f"Ошибка рерайта GigaChat: {e}")
         return text 
@@ -119,9 +145,9 @@ async def main():
 
     giga_token = get_gigachat_token()
     if giga_token:
-        print("Токен GigaChat получен.")
+        print("Токен GigaChat получен. Рерайт включен.")
     else:
-        print("ВНИМАНИЕ: Токен GigaChat не получен.")
+        print("ВНИМАНИЕ: Токен GigaChat не получен. Будет публиковаться оригинальный текст.")
 
     async with TelegramClient(StringSession(session), api_id, api_hash) as client:
         print("Успешный вход в аккаунт.")
@@ -131,14 +157,19 @@ async def main():
             messages = await client.get_messages(source_channel, limit=5)
             
             for msg in reversed(messages):
-                # Фильтр рекламы
+                
+                # --- ФИЛЬТР РЕКЛАМЫ ---
                 text_to_check = (msg.text or "").lower()
-                ad_keywords = ['реклама', 'erid', 'промокод', 'скидка', 'подписывайся', 'переходи по ссылке', 'интеграция', '@futuread', 'купить', 'заказать', 'цена', 'прайс']
+                ad_keywords = [
+                    'реклама', 'erid', 'промокод', 'скидка', 
+                    'подписывайся', 'переходи по ссылке', 'интеграция',
+                    '@futuread', 'купить', 'заказать', 'цена', 'прайс'
+                ]
                 if any(word in text_to_check for word in ad_keywords):
-                    print(f"Пропущен рекламный пост {msg.id}")
+                    print(f"Пропущен рекламный пост {msg.id} (найдено стоп-слово)")
                     continue
 
-                # Строгая проверка на дубли
+                # Проверка на дубли
                 if str(msg.id) in copied_ids:
                     print(f"Пост {msg.id} уже есть в истории. Пропускаем.")
                     continue
@@ -149,26 +180,27 @@ async def main():
                         print(f"Переписываем текст поста {msg.id}...")
                         final_text = rewrite_text(final_text, giga_token)
                     
+                    # --- ПРОВЕРКА: ЕСЛИ РЕРАЙТ НЕ УДАЛСЯ (ФИЛЬТР), ПРОПУСКАЕМ ПОСТ ---
                     if giga_token and final_text is None:
-                        print(f"Пост {msg.id} пропущен (фильтр GigaChat).")
+                        print(f"Пост {msg.id} пропущен из-за фильтра GigaChat.")
                         continue
+                    # -------------------------------------------------------------------
 
                     if msg.media:
                         file_path = await msg.download_media(file="/tmp/")
                         if file_path:
                             await client.send_file(target_channel, file_path, caption=final_text)
                             os.remove(file_path)
-                            print(f"Скопировано медиа (пост {msg.id})")
+                            print(f"Скопировано медиа (пост {msg.id} из {source_channel})")
                     elif final_text:
                         await client.send_message(target_channel, final_text)
-                        print(f"Скопирован текст (пост {msg.id})")
+                        print(f"Скопирован текст (пост {msg.id} из {source_channel})")
                     
-                    # Записываем ID в историю СРАЗУ после отправки
                     copied_ids[str(msg.id)] = source_channel
                     save_history(copied_ids)
                     await asyncio.sleep(3)
                     
                 except Exception as e:
-                    print(f"Ошибка при копировании поста {msg.id}: {e}")
+                    print(f"Ошибка при копировании поста {msg.id} из {source_channel}: {e}")
 
 asyncio.run(main())
