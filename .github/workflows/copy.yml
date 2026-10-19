@@ -24,7 +24,7 @@ jobs:
           python-version: '3.11'
 
       - name: Install dependencies
-        run: pip install telethon
+        run: pip install telethon requests
 
       - name: Run copier
         env:
