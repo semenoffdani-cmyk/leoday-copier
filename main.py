@@ -33,6 +33,7 @@ def load_history():
                 data = json.load(f)
                 return {str(k): v for k, v in data.items()}
         except Exception as e:
+            print(f"Ошибка чтения истории: {e}")
             return {}
     return {}
 
@@ -100,14 +101,14 @@ def rewrite_text(text, token):
         if 'choices' in result:
             rewritten = result['choices'][0]['message']['content'].strip()
             
-            # Расширенный список отказов и странных ответов
+            # Расширенный список отказов и странных ответов (защита от галлюцинаций)
             refusal_markers = [
                 "Генеративные языковые модели", 
                 "не обладают собственным мнением",
                 "чувствительным темам",
                 "временно ограничены",
                 "Благодарим за понимание",
-                "хрупкость", # Защита от философских галлюцинаций
+                "хрупкость", 
                 "здравый смысл возобладает"
             ]
             
@@ -122,7 +123,7 @@ def rewrite_text(text, token):
             if rewritten.startswith('«') and rewritten.endswith('»'):
                 rewritten = rewritten[1:-1]
                 
-            return rewritten
+            return rewritten.strip()
         else:
             return text
     except Exception as e:
@@ -189,11 +190,10 @@ async def main():
                     if giga_token and final_text is None:
                         continue
 
-                    # --- ОТПРАВКА МЕДИА (БЕЗ ПРИНУДИТЕЛЬНОГО ПРЕВЬЮ) ---
+                    # Отправка медиа без принудительного превью (чтобы не было пустого экрана)
                     if msg.media:
                         file_path = await msg.download_media(file="/tmp/")
                         if file_path:
-                            # Отправляем без параметра thumb, чтобы Telegram сам обработал видео
                             await client.send_file(
                                 target_channel, 
                                 file_path, 
