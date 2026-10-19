@@ -39,6 +39,14 @@ jobs:
         run: |
           git config --local user.email "action@github.com"
           git config --local user.name "GitHub Action"
-          git add history.json
-          git diff --quiet && git diff --staged --quiet || git commit -m "Update history [skip ci]"
-          git push
+          if [ -f history.json ]; then
+            git add history.json
+            if ! git diff --staged --quiet; then
+              git commit -m "Update history [skip ci]"
+              git push
+            else
+              echo "Нет изменений в history.json для сохранения."
+            fi
+          else
+            echo "Файл history.json не найден. Пропускаем сохранение."
+          fi
