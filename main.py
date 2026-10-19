@@ -14,7 +14,6 @@ urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 # =====================================================================
 # 🔒 НАСТРОЙКИ БЕЗОПАСНОСТИ (НЕ ТРОГАТЬ)
 # =====================================================================
-# Эти данные берутся из настроек GitHub (Secrets).
 api_id = int(os.environ['API_ID'])
 api_hash = os.environ['API_HASH']
 session = os.environ['SESSION']
@@ -24,26 +23,11 @@ giga_client_secret = os.environ.get('GIGACHAT_CLIENT_SECRET')
 
 
 # =====================================================================
-# 👇👇👇 ШАГ 1: НАСТРОЙКА ИСТОЧНИКОВ (ГИБРИДНАЯ ЛОГИКА) 👇👇👇
+# 👇👇👇 ШАГ 1: ИСТОЧНИКИ ДЛЯ ФИНАНСОВОГО КАНАЛА 👇👇👇
 # =====================================================================
-# Инструкция:
-# 1. В priority_channels (Приоритет) вписывайте НОВОСТНЫЕ каналы.
-#    Скрипт будет проверять их в первую очередь. Если там есть новости, 
-#    он опубликует их и НЕ БУДЕТ брать развлекательные посты в этом запуске.
-#
-# 2. В secondary_channels (Развлечения) вписывайте каналы с мемами.
-#    Скрипт возьмет их ТОЛЬКО ЕСЛИ в новостных каналах не было ничего нового.
-#
-# ФОРМАТ: '@имя_канала'. Разделяйте запятой.
-# =====================================================================
+priority_channels = ['@rian_ru', '@prime1', '@cbrf_official'] 
+secondary_channels = [] 
 
-# Новостные каналы (идут первыми)
-priority_channels = ['@topor', '@toporlive'] 
-
-# Развлекательные каналы (идут как запасной вариант)
-secondary_channels = ['@memachh']
-
-# (Не менять) Объединяем списки, чтобы скрипт знал все источники
 source_channels = priority_channels + secondary_channels
 # =====================================================================
 
@@ -51,40 +35,33 @@ source_channels = priority_channels + secondary_channels
 HISTORY_FILE = 'history.json'
 
 # =====================================================================
-# 👇👇👇 ШАГ 2: ОЧИСТКА ТЕКСТА (УДАЛЕНИЕ МУСОРА) 👇👇👇
+# 👇👇👇 ШАГ 2: ОЧИСТКА ТЕКСТА 👇👇👇
 # =====================================================================
 def clean_universal(text):
     if not text:
         return text
     
-    # 1. Удаляем все @упоминания (например, @futuread)
-    text = re.sub(r'@\w+', '', text)
+    # 1. Удаляем HTML-теги
+    text = re.sub(r'<[^>]+>', '', text)
     
-    # 2. Удаляем все HTTP/HTTPS ссылки
+    # 2. Удаляем @упоминания и ссылки
+    text = re.sub(r'@\w+', '', text)
     text = re.sub(r'https?://\S+', '', text)
     
-    # 3. Удаляем названия каналов-источников
-    # Инструкция: Если вы добавили новый канал в ШАГ 1, 
-    # обязательно впишите его название сюда, чтобы оно не появлялось в постах.
+    # 3. Удаляем названия каналов (безопасно, через re.escape)
     channel_names = [
-        r'Топор Live', 
-        r'Топор', 
-        r'Леодай', 
-        r'Леонардо Дайвинчик', 
-        r'МЕМАЧ', 
-        r'memachh'
-        # 👇 ВПИСЫВАТЬ НОВЫЕ НАЗВАНИЯ СЮДА
+        'РИА Новости', 'rian_ru',
+        'ПРАЙМ', 'prime1',
+        'Банк России', 'cbrf_official'
     ]
     for name in channel_names:
-        text = re.sub(name + r'[^\n.!?]*[.!?]?', '', text, flags=re.IGNORECASE)
+        safe_name = re.escape(name)
+        text = re.sub(r'\b' + safe_name + r'\b[:,]?\s*', '', text, flags=re.IGNORECASE)
     
-    # 4. Удаляем фразы, призывающие подписаться
+    # 4. Удаляем призывы к подписке
     subscribe_patterns = [
-        r'[Пп]одписаться[^\n]*', 
-        r'[Пп]одписывайтесь[^\n]*',
-        r'[Пп]ерейти в канал[^\n]*', 
-        r'[Чч]итать далее[^\n]*', 
-        r'[Ии]сточник[^\n]*'
+        r'[Пп]одписаться[^\n]*', r'[Пп]одписывайтесь[^\n]*',
+        r'[Пп]ерейти в канал[^\n]*', r'[Чч]итать далее[^\n]*', r'[Ии]сточник[^\n]*'
     ]
     for pattern in subscribe_patterns:
         text = re.sub(pattern, '', text)
@@ -92,14 +69,14 @@ def clean_universal(text):
     # 5. Убираем лишние пустые строки
     text = re.sub(r'\n\s*\n', '\n\n', text).strip()
     
-    # Если после очистки осталось мало текста, возвращаем пустую строку
-    if len(text) < 5:
+    # 6. Проверка на осмысленный текст
+    if len(text) < 5 or not re.search(r'[а-яА-Яa-zA-Z]', text):
         return "" 
     return text
 
 
 # =====================================================================
-# 👇👇👇 ШАГ 3: РАБОТА С GIGACHAT (РЕРАЙТ) 👇👇👇
+# 👇👇👇 ШАГ 3: НЕЙРОСЕТЬ (РЕРАЙТ + АНАЛИТИКА) 👇👇👇
 # =====================================================================
 def get_gigachat_token():
     if not giga_client_id or not giga_client_secret:
@@ -138,22 +115,19 @@ def rewrite_text(text, token):
             'Authorization': f'Bearer {token}'
         }
         
-        # =====================================================================
-        # ⚠️ ЕСЛИ ХОТИТЕ ИЗМЕНИТЬ СТИЛЬ КОММЕНТАРИЕВ, МЕНЯЙТЕ ТЕКСТ В ПУНКТЕ 2 ⚠️
-        # =====================================================================
         prompt = (
-            f"Ты — опытный редактор популярного Telegram-канала. Твоя задача — взять сырой текст и сделать из него качественный пост.\n"
-            f"1. Перепиши текст своими словами, сохранив все факты и смысл, но убрав канцелярит.\n"
-            f"2. Обязательно раздели переписанный текст и свой комментарий переносом строки (нажми Enter). Напиши короткий (1-2 предложения) живой комментарий от лица автора канала.\n"
-            f"3. ВАЖНО: Не пиши вводных слов вроде 'Вот ваш текст:', не используй кавычки для всего текста и КАТЕГОРИЧЕСКИ НЕ ПИШИ слова 'пустая строка'.\n\n"
-            f"Исходный текст:\n{text}"
+            f"Ты — профессиональный финансовый аналитик. Твоя задача — взять суть новости и объяснить её простым, понятным языком. "
+            f"1. Если в тексте есть сложные термины (ключевая ставка, инфляция, б.п.), обязательно объясни их в двух словах. "
+            f"2. Объясни практические последствия: как эта новость может повлиять на финансы, сбережения или бизнес обычного человека. "
+            f"3. Напиши 2-3 предложения. Не копируй оригинальный текст, перескажи только суть. "
+            f"Верни только готовый текст без кавычек, звездочек и лишних вводных слов:\n\n{text}"
         )
         
         payload = {
             "model": "GigaChat",
             "messages": [{"role": "user", "content": prompt}],
-            "temperature": 0.85,
-            "max_tokens": 600
+            "temperature": 0.4, 
+            "max_tokens": 700   
         }
         
         response = requests.post(url, headers=headers, json=payload, verify=False, timeout=60)
@@ -162,16 +136,16 @@ def rewrite_text(text, token):
         if 'choices' in result:
             rewritten = result['choices'][0]['message']['content'].strip()
             
-            # Защита от отказов и "галлюцинаций" нейросети
             refusal_markers = [
                 "Генеративные языковые модели", "не обладают собственным мнением",
-                "чувствительным темам", "временно ограничены", "Благодарим за понимание",
-                "хрупкость", "здравый смысл возобладает"
+                "чувствительным темам", "временно ограничены", "Благодарим за понимание"
             ]
             
-            if any(marker in rewritten for marker in refusal_markers) or len(rewritten) < 20:
+            if any(marker in rewritten for marker in refusal_markers) or len(rewritten) < 15:
                 return None 
 
+            # Убираем кавычки и markdown-звездочки, если нейросеть их поставила
+            rewritten = re.sub(r'[*_`#]', '', rewritten)
             if rewritten.startswith('"') and rewritten.endswith('"'):
                 rewritten = rewritten[1:-1]
             if rewritten.startswith('«') and rewritten.endswith('»'):
@@ -186,15 +160,17 @@ def rewrite_text(text, token):
 
 
 # =====================================================================
-# 👇👇👇 ШАГ 4: ОСНОВНАЯ ЛОГИКА (НЕ ТРОГАТЬ) 👇👇👇
+# 👇👇👇 ШАГ 4: ОСНОВНАЯ ЛОГИКА (МАКСИМАЛЬНАЯ ОТКАЗОУСТОЙЧИВОСТЬ) 👇👇👇
 # =====================================================================
 def load_history():
     if os.path.exists(HISTORY_FILE):
         try:
             with open(HISTORY_FILE, 'r', encoding='utf-8') as f:
                 data = json.load(f)
+                if len(data) > 5000:
+                    data = dict(list(data.items())[-5000:])
                 return {str(k): v for k, v in data.items()}
-        except Exception as e:
+        except Exception:
             return {}
     return {}
 
@@ -206,14 +182,15 @@ def save_history(history_dict):
         print(f"Ошибка сохранения истории: {e}")
 
 async def process_message(msg, source_channel, client, copied_ids, target_texts, giga_token):
-    """Вспомогательная функция для обработки одного поста"""
-    text_to_check = (msg.text or "").lower()
-    ad_keywords = ['реклама', 'erid', 'промокод', 'скидка', 'подписывайся', 'переходи по ссылке', 'интеграция', '@futuread', 'купить', 'заказать', 'цена', 'прайс']
-    if any(word in text_to_check for word in ad_keywords):
-        return
+    history_key = f"{source_channel.replace('@', '')}_{msg.id}"
+    
+    if history_key in copied_ids:
+        return False
 
-    if str(msg.id) in copied_ids:
-        return
+    text_to_check = (msg.text or "").lower()
+    ad_keywords = ['реклама', 'erid', 'промокод', 'скидка', 'подписывайся', 'переходи по ссылке', 'интеграция', 'купить', 'заказать', 'цена', 'прайс']
+    if any(word in text_to_check for word in ad_keywords):
+        return False
     
     try:
         final_text = msg.text or ""
@@ -222,7 +199,7 @@ async def process_message(msg, source_channel, client, copied_ids, target_texts,
             final_text = clean_universal(final_text)
         
         if not final_text and not msg.media:
-            return
+            return False
 
         if final_text and giga_token:
             final_text = rewrite_text(final_text, giga_token)
@@ -231,32 +208,47 @@ async def process_message(msg, source_channel, client, copied_ids, target_texts,
             final_text = ""
         
         if final_text is None and not msg.media:
-            return
+            return False
 
         if final_text and any(final_text[:50] in t for t in target_texts):
             print(f"Пост {msg.id} пропущен (такой текст уже есть в канале).")
-            return
+            return False
 
+        posted = False
         if msg.media:
-            file_path = await msg.download_media(file="/tmp/")
-            if file_path:
-                await client.send_file(
-                    target_channel, 
-                    file_path, 
-                    caption=final_text if final_text else None
-                )
-                os.remove(file_path)
-                print(f"Скопировано медиа (пост {msg.id} из {source_channel})")
+            try:
+                file_path = await msg.download_media(file="/tmp/")
+                if file_path:
+                    if final_text and len(final_text) > 1024:
+                        await client.send_file(target_channel, file_path)
+                        await client.send_message(target_channel, final_text)
+                    else:
+                        await client.send_file(
+                            target_channel, 
+                            file_path, 
+                            caption=final_text if final_text else None
+                        )
+                    os.remove(file_path)
+                    print(f"Скопировано медиа (пост {msg.id} из {source_channel})")
+                    posted = True
+            except Exception as media_err:
+                print(f"Ошибка скачивания/отправки медиа {msg.id}: {media_err}")
+                
         elif final_text:
             await client.send_message(target_channel, final_text)
             print(f"Скопирован текст (пост {msg.id} из {source_channel})")
-        
-        copied_ids[str(msg.id)] = source_channel
-        save_history(copied_ids)
-        await asyncio.sleep(3)
+            posted = True
+
+        if posted:
+            copied_ids[history_key] = source_channel
+            save_history(copied_ids)
+            await asyncio.sleep(3)
+            return True
+        return False
         
     except Exception as e:
-        print(f"Ошибка при копировании поста {msg.id}: {e}")
+        print(f"Ошибка при обработке поста {msg.id}: {e}")
+        return False
 
 async def main():
     copied_ids = load_history()
@@ -266,39 +258,46 @@ async def main():
     if giga_token:
         print("Токен GigaChat получен.")
     else:
-        print("ВНИМАНИЕ: Токен GigaChat не получен.")
+        print("ВНИМАНИЕ: Токен GigaChat не получен. Будет использоваться оригинальный текст.")
 
-    async with TelegramClient(StringSession(session), api_id, api_hash) as client:
-        print("Успешный вход в аккаунт.")
-        
-        target_messages = await client.get_messages(target_channel, limit=20)
-        target_texts = [m.text[:50] for m in target_messages if m.text]
-        
-        # --- ГИБРИДНАЯ ЛОГИКА ---
-        # 1. СНАЧАЛА ПРОВЕРЯЕМ НОВОСТИ (ПРИОРИТЕТ)
-        news_found = False
-        print("\n--- Проверка приоритетных каналов (Новости) ---")
-        for source_channel in priority_channels:
-            print(f"Смотрим: {source_channel}")
-            messages = await client.get_messages(source_channel, limit=3)
+    try:
+        async with TelegramClient(StringSession(session), api_id, api_hash) as client:
+            print("Успешный вход в аккаунт.")
             
-            for msg in reversed(messages):
-                if str(msg.id) in copied_ids:
+            target_messages = await client.get_messages(target_channel, limit=20)
+            target_texts = [m.text[:50] for m in target_messages if m.text]
+            
+            news_found = False
+            print("\n--- Проверка приоритетных каналов ---")
+            for source_channel in priority_channels:
+                print(f"Смотрим: {source_channel}")
+                try:
+                    messages = await client.get_messages(source_channel, limit=3)
+                except Exception as e:
+                    print(f"Не удалось получить сообщения из {source_channel}: {e}")
                     continue
                 
-                # Если нашли новый пост, обрабатываем и ставим флаг
-                await process_message(msg, source_channel, client, copied_ids, target_texts, giga_token)
-                news_found = True
-        
-        # 2. ЕСЛИ НОВОСТЕЙ НЕТ, БЕРЕМ РАЗВЛЕКАТЕЛЬНЫЙ КОНТЕНТ
-        if not news_found:
-            print("\n--- Новостей нет. Проверяем развлекательные каналы ---")
-            for source_channel in secondary_channels:
-                print(f"Смотрим: {source_channel}")
-                messages = await client.get_messages(source_channel, limit=3)
-                
                 for msg in reversed(messages):
-                    await process_message(msg, source_channel, client, copied_ids, target_texts, giga_token)
-        # ------------------------
+                    if await process_message(msg, source_channel, client, copied_ids, target_texts, giga_token):
+                        news_found = True
+            
+            if not news_found and secondary_channels:
+                print("\n--- Новостей нет. Проверяем дополнительные каналы ---")
+                for source_channel in secondary_channels:
+                    print(f"Смотрим: {source_channel}")
+                    try:
+                        messages = await client.get_messages(source_channel, limit=3)
+                    except Exception as e:
+                        print(f"Не удалось получить сообщения из {source_channel}: {e}")
+                        continue
+                    
+                    for msg in reversed(messages):
+                        await process_message(msg, source_channel, client, copied_ids, target_texts, giga_token)
+    except Exception as global_err:
+        print(f"КРИТИЧЕСКАЯ ОШИБКА ПРИ РАБОТЕ С TELEGRAM: {global_err}")
 
-asyncio.run(main())
+if __name__ == '__main__':
+    try:
+        asyncio.run(main())
+    except Exception as e:
+        print(f"Глобальный сбой скрипта: {e}")
