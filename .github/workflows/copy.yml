@@ -2,18 +2,30 @@ name: Copy Leoday Posts
 
 on:
   schedule:
-    - cron: '*/30 * * * *' # Запуск каждый час (в 0 минут)
-  workflow_dispatch: # Кнопка ручного запуска
+    - cron: '*/30 * * * *' # Каждые 30 минут
+  workflow_dispatch: # Кнопка для ручного запуска
+
+permissions:
+  contents: write # Даем GitHub Actions право сохранять файл history.json
 
 jobs:
   copy:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          # Сохраняем токен для возможности пуша
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
         with:
           python-version: '3.11'
-      - run: pip install telethon
+
+      - name: Install dependencies
+        run: pip install telethon
+
       - name: Run copier
         env:
           API_ID: ${{ secrets.API_ID }}
@@ -21,3 +33,12 @@ jobs:
           SESSION: ${{ secrets.SESSION }}
           TARGET_CHANNEL: ${{ secrets.TARGET_CHANNEL }}
         run: python main.py
+
+      - name: Save history to repository
+        run: |
+          git config --local user.email "action@github.com"
+          git config --local user.name "GitHub Action"
+          git add history.json
+          # Проверяем, изменился ли файл, и если да - сохраняем
+          git diff --quiet && git diff --staged --quiet || git commit -m "Update history [skip ci]"
+          git push
