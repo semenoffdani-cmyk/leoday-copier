@@ -3,8 +3,12 @@ import asyncio
 import json
 import uuid
 import requests
+import urllib3
 from telethon import TelegramClient
 from telethon.sessions import StringSession
+
+# Отключаем предупреждения о небезопасном соединении (для GigaChat)
+urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 api_id = int(os.environ['API_ID'])
 api_hash = os.environ['API_HASH']
@@ -45,11 +49,17 @@ def save_history(history_dict):
         json.dump(history_dict, f, ensure_ascii=False, indent=2)
 
 def get_gigachat_token():
+    """Получает токен доступа для GigaChat с улучшенной обработкой ошибок"""
     if not giga_client_id or not giga_client_secret:
+        print("Ошибка: не заданы GIGACHAT_CLIENT_ID или GIGACHAT_CLIENT_SECRET")
         return None
     try:
         import base64
-        auth_str = f"{giga_client_id}:{giga_client_secret}"
+        # Убираем лишние пробелы, если они есть
+        cid = giga_client_id.strip()
+        csecret = giga_client_secret.strip()
+        
+        auth_str = f"{cid}:{csecret}"
         auth_b64 = base64.b64encode(auth_str.encode()).decode()
         
         url = "https://ngw.devices.sberbank.ru:9443/api/v2/oauth"
@@ -60,13 +70,22 @@ def get_gigachat_token():
             'Authorization': f'Basic {auth_b64}'
         }
         payload = 'scope=GIGACHAT_API_PERS'
+        
+        # Отключаем проверку сертификатов
         response = requests.post(url, headers=headers, data=payload, verify=False, timeout=15)
-        return response.json().get('access_token')
+        
+        if response.status_code == 200:
+            return response.json().get('access_token')
+        else:
+            print(f"Ошибка авторизации GigaChat. Статус: {response.status_code}. Ответ: {response.text}")
+            return None
+            
     except Exception as e:
         print(f"Ошибка получения токена GigaChat: {e}")
         return None
 
 def rewrite_text(text, token):
+    """Отправляет текст в GigaChat для переписывания"""
     if not token or not text:
         return text
     try:
@@ -86,10 +105,16 @@ def rewrite_text(text, token):
         
         response = requests.post(url, headers=headers, json=payload, verify=False, timeout=30)
         result = response.json()
-        rewritten = result['choices'][0]['message']['content'].strip()
-        if rewritten.startswith('"') and rewritten.endswith('"'):
-            rewritten = rewritten[1:-1]
-        return rewritten
+        
+        if 'choices' in result:
+            rewritten = result['choices'][0]['message']['content'].strip()
+            if rewritten.startswith('"') and rewritten.endswith('"'):
+                rewritten = rewritten[1:-1]
+            return rewritten
+        else:
+            print(f"Неожиданный ответ от GigaChat: {result}")
+            return text
+            
     except Exception as e:
         print(f"Ошибка рерайта GigaChat: {e}")
         return text 
@@ -124,6 +149,7 @@ async def main():
                     print(f"Пропущен рекламный пост {msg.id} (найдено стоп-слово)")
                     continue
 
+                # Проверка на дубли
                 if msg.id in copied_ids:
                     print(f"Пост {msg.id} уже есть в истории. Пропускаем.")
                     continue
