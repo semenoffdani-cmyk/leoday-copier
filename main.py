@@ -25,6 +25,7 @@ giga_client_secret = os.environ.get('GIGACHAT_CLIENT_SECRET')
 # =====================================================================
 # 👇👇👇 ШАГ 1: ИСТОЧНИКИ ДЛЯ ФИНАНСОВОГО КАНАЛА 👇👇👇
 # =====================================================================
+# Безопасные официальные и деловые каналы:
 priority_channels = ['@rian_ru', '@prime1', '@cbrf_official'] 
 secondary_channels = [] 
 
@@ -115,11 +116,12 @@ def rewrite_text(text, token):
             'Authorization': f'Bearer {token}'
         }
         
+        # Идеальный промпт для финансового канала
         prompt = (
             f"Ты — профессиональный финансовый аналитик. Твоя задача — взять суть новости и объяснить её простым, понятным языком. "
             f"1. Если в тексте есть сложные термины (ключевая ставка, инфляция, б.п.), обязательно объясни их в двух словах. "
             f"2. Объясни практические последствия: как эта новость может повлиять на финансы, сбережения или бизнес обычного человека. "
-            f"3. Напиши 2-3 предложения. Не копируй оригинальный текст, перескажи только суть. "
+            f"3. Строго 2-3 предложения. Не копируй оригинальный текст, перескажи только суть. "
             f"Верни только готовый текст без кавычек, звездочек и лишних вводных слов:\n\n{text}"
         )
         
@@ -136,6 +138,7 @@ def rewrite_text(text, token):
         if 'choices' in result:
             rewritten = result['choices'][0]['message']['content'].strip()
             
+            # Защита от отказов и пустых ответов нейросети
             refusal_markers = [
                 "Генеративные языковые модели", "не обладают собственным мнением",
                 "чувствительным темам", "временно ограничены", "Благодарим за понимание"
@@ -144,7 +147,7 @@ def rewrite_text(text, token):
             if any(marker in rewritten for marker in refusal_markers) or len(rewritten) < 15:
                 return None 
 
-            # Убираем кавычки и markdown-звездочки, если нейросеть их поставила
+            # Очистка от Markdown-разметки и кавычек
             rewritten = re.sub(r'[*_`#]', '', rewritten)
             if rewritten.startswith('"') and rewritten.endswith('"'):
                 rewritten = rewritten[1:-1]
@@ -167,6 +170,7 @@ def load_history():
         try:
             with open(HISTORY_FILE, 'r', encoding='utf-8') as f:
                 data = json.load(f)
+                # Ограничиваем историю 5000 записями
                 if len(data) > 5000:
                     data = dict(list(data.items())[-5000:])
                 return {str(k): v for k, v in data.items()}
@@ -182,6 +186,7 @@ def save_history(history_dict):
         print(f"Ошибка сохранения истории: {e}")
 
 async def process_message(msg, source_channel, client, copied_ids, target_texts, giga_token):
+    # Уникальный ключ (канал_айди) для защиты от совпадения ID
     history_key = f"{source_channel.replace('@', '')}_{msg.id}"
     
     if history_key in copied_ids:
@@ -219,6 +224,7 @@ async def process_message(msg, source_channel, client, copied_ids, target_texts,
             try:
                 file_path = await msg.download_media(file="/tmp/")
                 if file_path:
+                    # Защита от лимита Telegram (1024 символа на подпись)
                     if final_text and len(final_text) > 1024:
                         await client.send_file(target_channel, file_path)
                         await client.send_message(target_channel, final_text)
