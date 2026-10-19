@@ -19,10 +19,10 @@ async def main():
         deleted_count = 0
 
         # Проходим по сообщениям от старых к новым
-        for msg in reversed(messages):
+                for msg in reversed(messages):
             # Проверяем только текстовые посты или подписи к медиа
             text = msg.text
-            if not text:
+            if not text or len(text) < 20: # <-- ДОБАВИТЬ ЭТУ СТРОКУ
                 continue
             
             # Если такой текст уже встречался ранее в канале
