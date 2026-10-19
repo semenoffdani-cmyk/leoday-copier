@@ -15,29 +15,26 @@ async def main():
         # Получаем последние 200 сообщений из ВАШЕГО канала
         messages = await client.get_messages(target_channel, limit=200)
         
-        seen_texts = {} # Словарь для хранения: {текст: ID сообщения}
+        seen_texts = {} 
         deleted_count = 0
 
-        # Проходим по сообщениям от старых к новым
-                for msg in reversed(messages):
-            # Проверяем только текстовые посты или подписи к медиа
+        # Проходим по сообщениям от старых к новым (отступ исправлен)
+        for msg in reversed(messages):
             text = msg.text
-            if not text or len(text) < 20: # <-- ДОБАВИТЬ ЭТУ СТРОКУ
+            # Проверяем только тексты длиннее 20 символов
+            if not text or len(text) < 20:
                 continue
             
-            # Если такой текст уже встречался ранее в канале
             if text in seen_texts:
                 old_msg_id = seen_texts[text]
                 try:
-                    # Удаляем старое сообщение
                     await client.delete_messages(target_channel, old_msg_id)
                     print(f"Удален дубль (старый ID: {old_msg_id}, оставлен новый ID: {msg.id})")
                     deleted_count += 1
-                    await asyncio.sleep(1) # Пауза, чтобы Telegram не забанил
+                    await asyncio.sleep(1) 
                 except Exception as e:
                     print(f"Ошибка при удалении {old_msg_id}: {e}")
             
-            # Записываем актуальный ID для этого текста
             seen_texts[text] = msg.id
 
         print(f"\nОчистка завершена. Удалено дублей: {deleted_count}")
