@@ -1,10 +1,10 @@
 name: Clean Duplicates
 
 on:
-  workflow_dispatch: # Запускается только вручную по кнопке
+  workflow_dispatch:
 
 permissions:
-  contents: write # <-- ДОБАВЛЕНО: разрешение на сохранение файлов
+  contents: write
 
 jobs:
   clean:
@@ -27,12 +27,3 @@ jobs:
           SESSION: ${{ secrets.SESSION }}
           TARGET_CHANNEL: ${{ secrets.TARGET_CHANNEL }}
         run: python clean_duplicates.py
-
-      # <-- ДОБАВЛЕНО: шаг сохранения истории обратно в репозиторий
-      - name: Save history to repository
-        run: |
-          git config --local user.email "action@github.com"
-          git config --local user.name "GitHub Action"
-          git add history.json
-          git diff --quiet && git diff --staged --quiet || git commit -m "Clean duplicates [skip ci]"
-          git push
