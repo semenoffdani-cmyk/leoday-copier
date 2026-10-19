@@ -2,7 +2,7 @@ name: Copy Leoday Posts
 
 on:
   schedule:
-    - cron: '0 * * * *' # Запуск каждый час (в 0 минут)
+    - cron: '*/30 * * * *' # Запуск каждый час (в 0 минут)
   workflow_dispatch: # Кнопка ручного запуска
 
 jobs:
