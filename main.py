@@ -101,7 +101,6 @@ def rewrite_text(text, token):
         if 'choices' in result:
             rewritten = result['choices'][0]['message']['content'].strip()
             
-            # Расширенный список отказов и странных ответов (защита от галлюцинаций)
             refusal_markers = [
                 "Генеративные языковые модели", 
                 "не обладают собственным мнением",
@@ -112,12 +111,10 @@ def rewrite_text(text, token):
                 "здравый смысл возобладает"
             ]
             
-            # Если ответ слишком короткий или содержит маркеры отказа — пропускаем
             if any(marker in rewritten for marker in refusal_markers) or len(rewritten) < 20:
                 print(f"GigaChat выдал странный ответ или отказ. Пропускаем.")
                 return None 
 
-            # Убираем внешние кавычки, если нейросеть их поставила
             if rewritten.startswith('"') and rewritten.endswith('"'):
                 rewritten = rewritten[1:-1]
             if rewritten.startswith('«') and rewritten.endswith('»'):
@@ -162,6 +159,10 @@ async def main():
     async with TelegramClient(StringSession(session), api_id, api_hash) as client:
         print("Успешный вход в аккаунт.")
         
+        # Получаем последние 20 постов из НАШЕГО канала для проверки дублей
+        target_messages = await client.get_messages(target_channel, limit=20)
+        target_texts = [m.text[:50] for m in target_messages if m.text]
+        
         for source_channel in source_channels:
             print(f"\n--- Проверка канала: {source_channel} ---")
             messages = await client.get_messages(source_channel, limit=5)
@@ -189,17 +190,14 @@ async def main():
                     
                     if giga_token and final_text is None:
                         continue
-                    # --- ЗАЩИТА ОТ ДУБЛЕЙ ИЗ РАЗНЫХ КАНАЛОВ ---
-                    # Проверяем, есть ли уже такой текст в нашей истории (по первым 50 символам)
-                    is_duplicate_text = any(
-                        final_text[:50] in str(v) or str(v)[:50] in final_text 
-                        for v in copied_ids.values() if isinstance(v, str)
-                    )
-                    if is_duplicate_text:
-                        print(f"Пост {msg.id} пропущен (такой текст уже был в истории).")
+
+                    # --- ЗАЩИТА ОТ ДУБЛЕЙ (проверка по нашему каналу) ---
+                    if any(final_text[:50] in t for t in target_texts):
+                        print(f"Пост {msg.id} пропущен (такой текст уже есть в канале).")
                         continue
-                    # ------------------------------------------
-                    # Отправка медиа без принудительного превью (чтобы не было пустого экрана)
+                    # ----------------------------------------------------
+
+                    # Отправка медиа без принудительного превью
                     if msg.media:
                         file_path = await msg.download_media(file="/tmp/")
                         if file_path:
