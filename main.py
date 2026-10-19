@@ -8,42 +8,84 @@ import urllib3
 from telethon import TelegramClient
 from telethon.sessions import StringSession
 
+# Отключаем предупреждения о небезопасном соединении (нужно для GigaChat)
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
+# --- НАСТРОЙКИ БЕЗОПАСНОСТИ (НЕ ТРОГАТЬ) ---
 api_id = int(os.environ['API_ID'])
 api_hash = os.environ['API_HASH']
 session = os.environ['SESSION']
 target_channel = os.environ['TARGET_CHANNEL']
-
 giga_client_id = os.environ.get('GIGACHAT_CLIENT_ID')
 giga_client_secret = os.environ.get('GIGACHAT_CLIENT_SECRET')
 
+
 # =====================================================================
-# ⬇️⬇️⬇️ ВСТАВЛЯТЬ НАЗВАНИЯ КАНАЛОВ СЮДА ⬇️⬇️⬇️
+# 👇👇👇 ШАГ 1: ОТКУДА БРАТЬ ПОСТЫ (ИСТОЧНИКИ) 👇👇👇
+# =====================================================================
+# Инструкция: 
+# Сюда вписывайте юзернеймы каналов, из которых хотите копировать новости.
+# Формат: '@имя_канала'. Если каналов несколько, разделяйте их запятой.
+# 
+# Пример 1 (один канал): source_channels = ['@topor']
+# Пример 2 (два канала): source_channels = ['@topor', '@toporlive']
+# 
+# ВАЖНО: Ваш аккаунт Telegram должен быть подписан на все эти каналы!
+# =====================================================================
 source_channels = ['@topor', '@toporlive'] 
-# ⬆️⬆️⬆️ ВСТАВЛЯТЬ НАЗВАНИЯ КАНАЛОВ СЮДА ⬆️⬆️⬆️
 # =====================================================================
+
 
 HISTORY_FILE = 'history.json'
 
-def load_history():
-    if os.path.exists(HISTORY_FILE):
-        try:
-            with open(HISTORY_FILE, 'r', encoding='utf-8') as f:
-                data = json.load(f)
-                return {str(k): v for k, v in data.items()}
-        except Exception as e:
-            print(f"Ошибка чтения истории: {e}")
-            return {}
-    return {}
+# =====================================================================
+# 👇👇👇 ШАГ 2: ЧТО УДАЛЯТЬ ИЗ ТЕКСТА (ЧИСТКА) 👇👇👇
+# =====================================================================
+def clean_universal(text):
+    if not text:
+        return text
+    
+    # 1. Удаляем все @упоминания
+    text = re.sub(r'@\w+', '', text)
+    
+    # 2. Удаляем все HTTP/HTTPS ссылки
+    text = re.sub(r'https?://\S+', '', text)
+    
+    # 3. Удаляем названия каналов-источников
+    # Инструкция: добавляйте сюда названия каналов, которые НЕ ДОЛЖНЫ появляться в посте.
+    channel_names = [
+        r'Топор Live', 
+        r'Топор', 
+        r'Леодай', 
+        r'Леонардо Дайвинчик'
+        # 👇 ВПИСЫВАТЬ НОВЫЕ НАЗВАНИЯ СЮДА, например: r'Новый Канал'
+    ]
+    for name in channel_names:
+        text = re.sub(name + r'[^\n.!?]*[.!?]?', '', text, flags=re.IGNORECASE)
+    
+    # 4. Удаляем фразы, призывающие подписаться
+    subscribe_patterns = [
+        r'[Пп]одписаться[^\n]*', 
+        r'[Пп]одписывайтесь[^\n]*',
+        r'[Пп]ерейти в канал[^\n]*',
+        r'[Чч]итать далее[^\n]*',
+        r'[Ии]сточник[^\n]*'
+    ]
+    for pattern in subscribe_patterns:
+        text = re.sub(pattern, '', text)
+    
+    # 5. Убираем лишние пустые строки
+    text = re.sub(r'\n\s*\n', '\n\n', text).strip()
+    
+    if len(text) < 5:
+        return None
+        
+    return text
 
-def save_history(history_dict):
-    try:
-        with open(HISTORY_FILE, 'w', encoding='utf-8') as f:
-            json.dump(history_dict, f, ensure_ascii=False, indent=2)
-    except Exception as e:
-        print(f"Ошибка сохранения истории: {e}")
 
+# =====================================================================
+# 👇👇👇 ШАГ 3: КАК ПЕРЕПИСЫВАТЬ ТЕКСТ (НЕЙРОСЕТЬ) 👇👇👇
+# =====================================================================
 def get_gigachat_token():
     if not giga_client_id or not giga_client_secret:
         return None
@@ -80,6 +122,14 @@ def rewrite_text(text, token):
             'Content-Type': 'application/json',
             'Authorization': f'Bearer {token}'
         }
+        
+        # =====================================================================
+        # ⚠️ ВОТ ЗДЕСЬ МЕНЯЕТСЯ СТИЛЬ КОММЕНТАРИЕВ ⚠️
+        # =====================================================================
+        # Если хотите изменить стиль комментария, просто отредактируйте текст 
+        # в пункте "2." внутри переменной prompt ниже.
+        # Например, замените "живой" на "ироничный" или "сдержанный".
+        # =====================================================================
         prompt = (
             f"Ты — опытный редактор популярного новостного Telegram-канала. Твоя задача — взять сырой текст новости и сделать из него качественный, цепляющий пост.\n"
             f"1. Перепиши текст своими словами, сохранив все факты и смысл, но убрав канцелярит.\n"
@@ -127,47 +177,27 @@ def rewrite_text(text, token):
         print(f"Ошибка рерайта GigaChat: {e}")
         return text 
 
-def clean_universal(text):
-    """Универсальная очистка от ссылок, упоминаний и названий каналов"""
-    if not text:
-        return text
-    
-    # 1. Удаляем все @упоминания
-    text = re.sub(r'@\w+', '', text)
-    
-    # 2. Удаляем все HTTP/HTTPS ссылки
-    text = re.sub(r'https?://\S+', '', text)
-    
-    # 3. Удаляем названия каналов-источников (даже без @)
-    channel_names = [
-        r'Топор Live', 
-        r'Топор', 
-        r'Леодай', 
-        r'Леонардо Дайвинчик'
-    ]
-    for name in channel_names:
-        # Удаляем название и всё, что идет после него до конца строки или до знака препинания
-        text = re.sub(name + r'[^\n.!?]*[.!?]?', '', text, flags=re.IGNORECASE)
-    
-    # 4. Удаляем фразы, призывающие подписаться
-    subscribe_patterns = [
-        r'[Пп]одписаться[^\n]*', 
-        r'[Пп]одписывайтесь[^\n]*',
-        r'[Пп]ерейти в канал[^\n]*',
-        r'[Чч]итать далее[^\n]*',
-        r'[Ии]сточник[^\n]*'
-    ]
-    for pattern in subscribe_patterns:
-        text = re.sub(pattern, '', text)
-    
-    # 5. Убираем лишние пустые строки и пробелы
-    text = re.sub(r'\n\s*\n', '\n\n', text).strip()
-    
-    # 6. Если после очистки осталось слишком мало текста, возвращаем None
-    if len(text) < 5:
-        return None
-        
-    return text
+
+# =====================================================================
+# 👇👇👇 ШАГ 4: ОСНОВНАЯ ЛОГИКА (НЕ ТРОГАТЬ) 👇👇👇
+# =====================================================================
+def load_history():
+    if os.path.exists(HISTORY_FILE):
+        try:
+            with open(HISTORY_FILE, 'r', encoding='utf-8') as f:
+                data = json.load(f)
+                return {str(k): v for k, v in data.items()}
+        except Exception as e:
+            print(f"Ошибка чтения истории: {e}")
+            return {}
+    return {}
+
+def save_history(history_dict):
+    try:
+        with open(HISTORY_FILE, 'w', encoding='utf-8') as f:
+            json.dump(history_dict, f, ensure_ascii=False, indent=2)
+    except Exception as e:
+        print(f"Ошибка сохранения истории: {e}")
 
 async def main():
     copied_ids = load_history()
@@ -182,7 +212,6 @@ async def main():
     async with TelegramClient(StringSession(session), api_id, api_hash) as client:
         print("Успешный вход в аккаунт.")
         
-        # Получаем последние 20 постов из НАШЕГО канала для проверки дублей
         target_messages = await client.get_messages(target_channel, limit=20)
         target_texts = [m.text[:50] for m in target_messages if m.text]
         
@@ -202,26 +231,22 @@ async def main():
                 try:
                     final_text = msg.text or ""
                     
-                    # Очищаем оригинальный текст от ссылок и названий
                     if final_text:
                         final_text = clean_universal(final_text)
                     
                     if final_text is None:
                          continue
 
-                    # Отправляем в GigaChat
                     if final_text and giga_token:
                         final_text = rewrite_text(final_text, giga_token)
                     
                     if giga_token and final_text is None:
                         continue
 
-                    # Защита от дублей (проверка по нашему каналу)
                     if any(final_text[:50] in t for t in target_texts):
                         print(f"Пост {msg.id} пропущен (такой текст уже есть в канале).")
                         continue
 
-                    # Отправка медиа без принудительного превью
                     if msg.media:
                         file_path = await msg.download_media(file="/tmp/")
                         if file_path:
