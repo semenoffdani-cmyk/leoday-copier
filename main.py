@@ -18,20 +18,16 @@ target_channel = os.environ['TARGET_CHANNEL']
 # Данные для GigaChat
 giga_client_id = os.environ.get('GIGACHAT_CLIENT_ID')
 giga_client_secret = os.environ.get('GIGACHAT_CLIENT_SECRET')
-# --- ВРЕМЕННАЯ ПРОВЕРКА ---
-print(f"ПРОВЕРКА: ID = {giga_client_id is not None}")
-print(f"ПРОВЕРКА: SECRET = {giga_client_secret is not None}")
-# --------------------------
 
 # =====================================================================
 # ⬇️⬇️⬇️⬇️⬇️⬇️⬇️⬇️⬇️⬇️⬇️⬇️⬇️⬇️⬇️⬇️⬇️⬇️⬇️⬇️⬇️⬇️⬇️⬇️⬇️⬇️⬇️⬇️⬇️⬇️⬇️⬇️⬇️
 # 👇👇👇 ВОТ СЮДА ВСТАВЛЯТЬ НАЗВАНИЕ ВТОРОГО КАНАЛА 👇👇👇
 #
 # Чтобы добавить второй канал, напишите его юзернейм через запятую.
-# ПРИМЕР: source_channels = ['@leoday', '@Топор18']
+# ПРИМЕР: source_channels = ['@leoday', '@topor']
 # ВАЖНО: не забудьте про кавычки и символ @ !
 #
-source_channels = ['@leoday','@topor'] 
+source_channels = ['@leoday', '@topor'] 
 #
 # 👆👆👆 ВОТ СЮДА ВСТАВЛЯТЬ НАЗВАНИЕ ВТОРОГО КАНАЛА 👆👆👆
 # ⬆️⬆️⬆️⬆️⬆️⬆️⬆️⬆️⬆️⬆️⬆️⬆️⬆️⬆️⬆️⬆️⬆️⬆️⬆️⬆️⬆️⬆️⬆️⬆️⬆️⬆️⬆️⬆️⬆️⬆️⬆️⬆️⬆️
@@ -53,13 +49,12 @@ def save_history(history_dict):
         json.dump(history_dict, f, ensure_ascii=False, indent=2)
 
 def get_gigachat_token():
-    """Получает токен доступа для GigaChat с улучшенной обработкой ошибок"""
+    """Получает токен доступа для GigaChat"""
     if not giga_client_id or not giga_client_secret:
         print("Ошибка: не заданы GIGACHAT_CLIENT_ID или GIGACHAT_CLIENT_SECRET")
         return None
     try:
         import base64
-        # Убираем лишние пробелы, если они есть
         cid = giga_client_id.strip()
         csecret = giga_client_secret.strip()
         
@@ -75,7 +70,6 @@ def get_gigachat_token():
         }
         payload = 'scope=GIGACHAT_API_PERS'
         
-        # Отключаем проверку сертификатов
         response = requests.post(url, headers=headers, data=payload, verify=False, timeout=15)
         
         if response.status_code == 200:
@@ -112,6 +106,13 @@ def rewrite_text(text, token):
         
         if 'choices' in result:
             rewritten = result['choices'][0]['message']['content'].strip()
+            
+            # --- ПРОВЕРКА НА ОТКАЗ GIGACHAT ---
+            if "Генеративные языковые модели" in rewritten or "не обладают собственным мнением" in rewritten:
+                print(f"GigaChat отказался переписывать пост (сработал фильтр). Пост будет пропущен.")
+                return None # Возвращаем None, чтобы скрипт пропустил пост
+            # ---------------------------------
+
             if rewritten.startswith('"') and rewritten.endswith('"'):
                 rewritten = rewritten[1:-1]
             return rewritten
@@ -164,6 +165,12 @@ async def main():
                         print(f"Переписываем текст поста {msg.id}...")
                         final_text = rewrite_text(final_text, giga_token)
                     
+                    # --- ПРОВЕРКА: ЕСЛИ РЕРАЙТ НЕ УДАЛСЯ (ФИЛЬТР), ПРОПУСКАЕМ ПОСТ ---
+                    if giga_token and final_text is None:
+                        print(f"Пост {msg.id} пропущен из-за фильтра GigaChat.")
+                        continue
+                    # -------------------------------------------------------------------
+
                     if msg.media:
                         file_path = await msg.download_media(file="/tmp/")
                         if file_path:
