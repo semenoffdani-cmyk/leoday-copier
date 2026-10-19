@@ -7,6 +7,7 @@ import requests
 import urllib3
 from telethon import TelegramClient
 from telethon.sessions import StringSession
+from telethon.errors import FloodWaitError
 
 # Отключаем предупреждения о небезопасном соединении (нужно для GigaChat)
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
@@ -51,7 +52,7 @@ def clean_universal(text):
     text = re.sub(r'@\w+', '', text)
     text = re.sub(r'https?://\S+', '', text)
     
-    # 4. Удаляем одинокие скобки
+    # 4. Удаляем одинокие скобки и спецсимволы
     text = text.replace('[', '').replace(']', '')
     
     # 5. Удаляем названия каналов
@@ -67,7 +68,8 @@ def clean_universal(text):
     # 6. Удаляем призывы к подписке
     subscribe_patterns = [
         r'[Пп]одписаться[^\n]*', r'[Пп]одписывайтесь[^\n]*',
-        r'[Пп]ерейти в канал[^\n]*', r'[Чч]итать далее[^\n]*', r'[Ии]сточник[^\n]*'
+        r'[Пп]ерейти в канал[^\n]*', r'[Чч]итать далее[^\n]*', r'[Ии]сточник[^\n]*',
+        r'[Пп]одробнее[^\n]*'
     ]
     for pattern in subscribe_patterns:
         text = re.sub(pattern, '', text)
@@ -75,7 +77,7 @@ def clean_universal(text):
     # 7. Убираем лишние пустые строки
     text = re.sub(r'\n\s*\n', '\n\n', text).strip()
     
-    # Если после очистки осталось меньше 10 символов — это мусор
+    # 8. Проверка на осмысленный текст (должно быть больше 10 символов и хотя бы одна буква)
     if len(text) < 10 or not re.search(r'[а-яА-Яa-zA-Z]', text):
         return "" 
     return text
@@ -151,6 +153,7 @@ def rewrite_text(text, token):
             if any(marker in rewritten for marker in refusal_markers) or len(rewritten) < 15:
                 return None 
 
+            # Финальная зачистка от случайных символов
             rewritten = re.sub(r'[*_`#]', '', rewritten)
             rewritten = rewritten.replace('[', '').replace(']', '')
             
@@ -168,7 +171,7 @@ def rewrite_text(text, token):
 
 
 # =====================================================================
-# 👇👇👇 ШАГ 4: ОСНОВНАЯ ЛОГИКА (ЗАЩИТА ОТ МУСОРА) 👇👇👇
+# 👇👇👇 ШАГ 4: ОСНОВНАЯ ЛОГИКА (МАКСИМАЛЬНАЯ ЗАЩИТА) 👇👇👇
 # =====================================================================
 def load_history():
     if os.path.exists(HISTORY_FILE):
@@ -203,33 +206,40 @@ async def process_message(msg, source_channel, client, copied_ids, target_texts,
     try:
         final_text = msg.text or ""
         
+        # Очищаем текст
         if final_text:
             final_text = clean_universal(final_text)
         
-        # 🚨 КРИТИЧЕСКОЕ ИСПРАВЛЕНИЕ: Если текста нет, мы ПРОПУСКАЕМ пост.
-        # Больше никаких картинок без описания (типа Vinted).
+        # Если текста нет (или он мусорный) — ПРОПУСКАЕМ пост (защита от картинок Vinted)
         if not final_text:
-            print(f"Пост {msg.id} пропущен (нет текста для обработки).")
+            print(f"Пост {msg.id} пропущен (нет осмысленного текста).")
             return False
 
-        if final_text and giga_token:
+        # Отправляем в GigaChat
+        if giga_token:
             final_text = rewrite_text(final_text, giga_token)
         
-        # Если нейросеть не смогла обработать текст, пропускаем
+        # Если нейросеть отказалась — пропускаем
         if final_text is None:
             return False
 
-        if final_text and any(final_text[:50] in t for t in target_texts):
+        # Проверка на дубли в целевом канале
+        if any(final_text[:50] in t for t in target_texts):
             print(f"Пост {msg.id} пропущен (такой текст уже есть в канале).")
             return False
 
+        # ЗАЩИТА ОТ СЛИШКОМ ДЛИННЫХ ТЕКСТОВ (чтобы не упасть с ошибкой)
+        if len(final_text) > 4000:
+            final_text = final_text[:4000] + "..."
+
         posted = False
         
-        # Отправка (теперь мы знаем, что текст 100% есть)
+        # Отправка (мы точно знаем, что текст есть)
         if msg.media:
             try:
                 file_path = await msg.download_media(file="/tmp/")
                 if file_path:
+                    # Защита от лимита Telegram (1024 символа)
                     if len(final_text) > 1024:
                         await client.send_file(target_channel, file_path)
                         await client.send_message(target_channel, final_text)
@@ -242,13 +252,20 @@ async def process_message(msg, source_channel, client, copied_ids, target_texts,
                     os.remove(file_path)
                     print(f"Скопировано медиа с текстом (пост {msg.id} из {source_channel})")
                     posted = True
+            except FloodWaitError as e:
+                print(f"Telegram просит подождать {e.seconds} секунд. Ждем...")
+                await asyncio.sleep(e.seconds)
             except Exception as media_err:
                 print(f"Ошибка скачивания/отправки медиа {msg.id}: {media_err}")
                 
         else:
-            await client.send_message(target_channel, final_text)
-            print(f"Скопирован текст (пост {msg.id} из {source_channel})")
-            posted = True
+            try:
+                await client.send_message(target_channel, final_text)
+                print(f"Скопирован текст (пост {msg.id} из {source_channel})")
+                posted = True
+            except FloodWaitError as e:
+                print(f"Telegram просит подождать {e.seconds} секунд. Ждем...")
+                await asyncio.sleep(e.seconds)
 
         if posted:
             copied_ids[history_key] = source_channel
