@@ -87,7 +87,7 @@ def rewrite_text(text, token):
             'Authorization': f'Bearer {token}'
         }
         
-        # --- НОВЫЙ ПРОМПТ (сдержанный, но живой) ---
+        # Промпт: редактор + сдержанный, но живой комментарий
         prompt = (
             f"Ты — опытный редактор популярного новостного Telegram-канала. Твоя задача — взять сырой текст новости и сделать из него качественный, цепляющий пост.\n"
             f"1. Перепиши текст своими словами (сделай рерайт), сохранив все факты и смысл, но убрав канцелярит. Сделай текст коротким и удобным для чтения.\n"
@@ -99,7 +99,7 @@ def rewrite_text(text, token):
         payload = {
             "model": "GigaChat",
             "messages": [{"role": "user", "content": prompt}],
-            "temperature": 0.85, # Чуть повысили температуру для креативности
+            "temperature": 0.85,
             "max_tokens": 600
         }
         
@@ -135,13 +135,9 @@ def clean_universal(text):
     if not text:
         return text
     
-    # 1. Удаляем все @упоминания
     text = re.sub(r'@\w+', '', text)
-    
-    # 2. Удаляем все HTTP/HTTPS ссылки
     text = re.sub(r'https?://\S+', '', text)
     
-    # 3. Удаляем фразы, призывающие подписаться
     subscribe_patterns = [
         r'[Пп]одписаться[^\n]*', 
         r'[Пп]одписывайтесь[^\n]*',
@@ -152,10 +148,8 @@ def clean_universal(text):
     for pattern in subscribe_patterns:
         text = re.sub(pattern, '', text)
     
-    # 4. Убираем лишние пустые строки
     text = re.sub(r'\n\s*\n', '\n\n', text).strip()
     
-    # 5. Если осталось слишком мало текста, возвращаем None
     if len(text) < 5:
         return None
         
@@ -198,44 +192,39 @@ async def main():
                 try:
                     final_text = msg.text or ""
                     
-                    # 1. Сначала ОЧИЩАЕМ текст от ссылок (чтобы GigaChat их не видел)
+                    # 1. Очищаем текст от ссылок ДО отправки в GigaChat
                     if final_text:
                         final_text = clean_universal(final_text)
                     
-                    # Если после очистки ничего не осталось — пропускаем
                     if final_text is None:
                          print(f"Пост {msg.id} пропущен (в оригинале были только ссылки).")
                          continue
 
-                    # 2. Теперь ОТПРАВЛЯЕМ чистый текст в GigaChat
+                    # 2. Отправляем чистый текст в GigaChat
                     if final_text and giga_token:
                         print(f"Переписываем текст поста {msg.id}...")
                         final_text = rewrite_text(final_text, giga_token)
                     
-                    # Если фильтр GigaChat сработал
                     if giga_token and final_text is None:
                         print(f"Пост {msg.id} пропущен (фильтр GigaChat).")
                         continue
 
-                    # 3. Отправляем
-                                       if msg.media:
-                        # Скачиваем само видео/фото
+                    # 3. Отправляем медиа с превью (обложкой)
+                    if msg.media:
                         file_path = await msg.download_media(file="/tmp/")
                         if file_path:
-                            # Пытаемся скачать превью (обложку), если оно есть
                             thumb_path = None
+                            
+                            # Пытаемся найти превью для видео/документа
                             if hasattr(msg.media, 'photo') and msg.media.photo:
-                                # Если это фото внутри сообщения с текстом
                                 thumb_path = await client.download_media(msg.media.photo, file="/tmp/thumb_")
                             elif hasattr(msg.media, 'document') and msg.media.document:
-                                # Если это видео или документ
-                                # Ищем миниатюру в атрибутах документа
                                 for attr in msg.media.document.attributes:
                                     if hasattr(attr, 'thumb') and attr.thumb:
                                         thumb_path = await client.download_media(attr.thumb, file="/tmp/thumb_")
                                         break
                             
-                            # Отправляем с превью (если оно скачалось)
+                            # Отправляем файл
                             await client.send_file(
                                 target_channel, 
                                 file_path, 
@@ -243,7 +232,7 @@ async def main():
                                 thumb=thumb_path
                             )
                             
-                            # Чистим временные файлы
+                            # Удаляем временные файлы
                             os.remove(file_path)
                             if thumb_path and os.path.exists(thumb_path):
                                 os.remove(thumb_path)
