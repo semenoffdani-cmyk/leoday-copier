@@ -1,4 +1,4 @@
-name: Copy Leoday Posts
+name: Copy Financial Posts
 
 on:
   schedule:
@@ -31,10 +31,8 @@ jobs:
           API_HASH: ${{ secrets.API_HASH }}
           SESSION: ${{ secrets.SESSION }}
           TARGET_CHANNEL: ${{ secrets.TARGET_CHANNEL }}
-          # ⬇️⬇️ ВОТ ТУТ МЫ ДОБАВИЛИ ДВЕ СТРОКИ ⬇️⬇️
           GIGACHAT_CLIENT_ID: ${{ secrets.GIGACHAT_CLIENT_ID }}
           GIGACHAT_CLIENT_SECRET: ${{ secrets.GIGACHAT_CLIENT_SECRET }}
-          # ⬆️⬆️⬆️ КОНЕЦ ДОБАВЛЕНИЯ ⬆️⬆️⬆️
         run: python main.py
 
       - name: Save history to repository
