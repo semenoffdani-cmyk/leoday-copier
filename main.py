@@ -16,15 +16,15 @@ async def main():
         # Получаем последние 3 сообщения из исходного канала
         messages = await client.get_messages(source_channel, limit=3)
         
-        # Перебираем их от старых к новым
         for msg in reversed(messages):
             try:
-                # Пересылаем сообщение целиком (текст, видео, картинки)
-                # Если вы хотите, чтобы не было надписи "Переслано из @leoday", 
-                # замените forward_messages на send_message с параметром copy
-                await client.forward_messages(target_channel, msg)
-                print(f"Успешно скопирован пост ID: {msg.id}")
-                await asyncio.sleep(3) # Пауза 3 секунды, чтобы Telegram не блокировал за спам
+                # Отправляем сообщение, используя параметр copy=True
+                # Это скопирует контент без метки "Переслано"
+                await client.send_message(target_channel, msg, copy=True)
+                print(f"Успешно скопирован пост ID: {msg.id} (без метки 'Переслано')")
+                
+                # Пауза, чтобы Telegram не расценил это как спам
+                await asyncio.sleep(3) 
             except Exception as e:
                 print(f"Ошибка при копировании поста {msg.id}: {e}")
 
