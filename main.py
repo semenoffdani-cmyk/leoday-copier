@@ -1,5 +1,6 @@
 import os
 import asyncio
+import json
 from telethon import TelegramClient
 from telethon.sessions import StringSession
 
@@ -8,58 +9,64 @@ api_hash = os.environ['API_HASH']
 session = os.environ['SESSION']
 target_channel = os.environ['TARGET_CHANNEL']
 source_channel = '@leoday'
+HISTORY_FILE = 'history.json'
+
+def load_history():
+    """Загружает список ID скопированных постов из файла"""
+    if os.path.exists(HISTORY_FILE):
+        try:
+            with open(HISTORY_FILE, 'r', encoding='utf-8') as f:
+                return json.load(f)
+        except json.JSONDecodeError:
+            return []
+    return []
+
+def save_history(history_list):
+    """Сохраняет обновленный список ID в файл"""
+    with open(HISTORY_FILE, 'w', encoding='utf-8') as f:
+        json.dump(history_list, f, ensure_ascii=False, indent=2)
 
 async def main():
+    # Загружаем историю в начале
+    copied_ids = load_history()
+    print(f"Загружено {len(copied_ids)} ID из истории.")
+
     async with TelegramClient(StringSession(session), api_id, api_hash) as client:
         print("Успешный вход в аккаунт.")
         
-        # 1. Получаем последние 3 поста из ИСТОЧНИКА
-        source_messages = await client.get_messages(source_channel, limit=3)
+        # Получаем последние 5 сообщений из источника (чуть больше для надежности)
+        messages = await client.get_messages(source_channel, limit=5)
         
-        # 2. Получаем последние 50 постов из ВАШЕГО канала для сверки
-        target_messages = await client.get_messages(target_channel, limit=50)
-        
-        # --- ЧАСТЬ 1: Копирование новых постов ---
-        for msg in reversed(source_messages):
-            # Проверяем, есть ли уже этот текст в вашем канале (простая проверка по первым 50 символам)
-            is_copied = any(
-                t_msg.text and msg.text and t_msg.text[:50] == msg.text[:50] 
-                for t_msg in target_messages
-            )
-            
-            if is_copied:
-                continue # Пропускаем, если уже скопировали
+        for msg in reversed(messages):
+            # Пропускаем, если пост уже был скопирован (дубль)
+            if msg.id in copied_ids:
+                print(f"Пост {msg.id} уже есть в истории. Пропускаем.")
+                continue
             
             try:
                 if msg.media:
+                    # Скачиваем во временную папку
                     file_path = await msg.download_media(file="/tmp/")
                     if file_path:
-                        await client.send_file(target_channel, file_path, caption=msg.text or "")
+                        await client.send_file(
+                            target_channel, 
+                            file_path, 
+                            caption=msg.text or ""
+                        )
                         os.remove(file_path)
-                        print(f"Скопировано медиа: {msg.id}")
+                        print(f"Скопировано медиа (пост {msg.id})")
                 elif msg.text:
                     await client.send_message(target_channel, msg.text)
-                    print(f"Скопирован текст: {msg.id}")
+                    print(f"Скопирован текст (пост {msg.id})")
+                
+                # Добавляем ID в список успешно скопированных и сохраняем
+                copied_ids.append(msg.id)
+                save_history(copied_ids)
+                
+                # Пауза, чтобы не было спам-бана
                 await asyncio.sleep(3)
+                
             except Exception as e:
-                print(f"Ошибка при копировании {msg.id}: {e}")
-
-        # --- ЧАСТЬ 2: Удаление постов, которых больше нет в источнике ---
-        print("Проверка на удаленные посты...")
-        
-        # Берем последние 100 постов из источника, чтобы знать, что там осталось
-        current_source_msgs = await client.get_messages(source_channel, limit=100)
-        current_source_texts = [m.text[:50] for m in current_source_msgs if m.text]
-
-        for t_msg in target_messages:
-            if t_msg.text:
-                # Если текста этого поста нет в источнике (проверяем по первым 50 символам)
-                if t_msg.text[:50] not in current_source_texts:
-                    try:
-                        await client.delete_messages(target_channel, t_msg.id)
-                        print(f"Удален пост из вашего канала (ID: {t_msg.id}), так как его нет в источнике.")
-                        await asyncio.sleep(2)
-                    except Exception as e:
-                        print(f"Не удалось удалить пост {t_msg.id}: {e}")
+                print(f"Ошибка при копировании поста {msg.id}: {e}")
 
 asyncio.run(main())
