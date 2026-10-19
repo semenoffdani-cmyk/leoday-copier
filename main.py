@@ -27,7 +27,7 @@ giga_client_secret = os.environ.get('GIGACHAT_CLIENT_SECRET')
 # ПРИМЕР: source_channels = ['@leoday', '@topor']
 # ВАЖНО: не забудьте про кавычки и символ @ !
 #
-source_channels = ['@leoday', '@topor'] 
+source_channels = ['@leoday', '@toporlive'] 
 #
 # 👆👆👆 ВОТ СЮДА ВСТАВЛЯТЬ НАЗВАНИЕ ВТОРОГО КАНАЛА 👆👆👆
 # ⬆️⬆️⬆️⬆️⬆️⬆️⬆️⬆️⬆️⬆️⬆️⬆️⬆️⬆️⬆️⬆️⬆️⬆️⬆️⬆️⬆️⬆️⬆️⬆️⬆️⬆️⬆️⬆️⬆️⬆️⬆️⬆️⬆️
