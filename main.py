@@ -218,11 +218,36 @@ async def main():
                         continue
 
                     # 3. Отправляем
-                    if msg.media:
+                                       if msg.media:
+                        # Скачиваем само видео/фото
                         file_path = await msg.download_media(file="/tmp/")
                         if file_path:
-                            await client.send_file(target_channel, file_path, caption=final_text)
+                            # Пытаемся скачать превью (обложку), если оно есть
+                            thumb_path = None
+                            if hasattr(msg.media, 'photo') and msg.media.photo:
+                                # Если это фото внутри сообщения с текстом
+                                thumb_path = await client.download_media(msg.media.photo, file="/tmp/thumb_")
+                            elif hasattr(msg.media, 'document') and msg.media.document:
+                                # Если это видео или документ
+                                # Ищем миниатюру в атрибутах документа
+                                for attr in msg.media.document.attributes:
+                                    if hasattr(attr, 'thumb') and attr.thumb:
+                                        thumb_path = await client.download_media(attr.thumb, file="/tmp/thumb_")
+                                        break
+                            
+                            # Отправляем с превью (если оно скачалось)
+                            await client.send_file(
+                                target_channel, 
+                                file_path, 
+                                caption=final_text,
+                                thumb=thumb_path
+                            )
+                            
+                            # Чистим временные файлы
                             os.remove(file_path)
+                            if thumb_path and os.path.exists(thumb_path):
+                                os.remove(thumb_path)
+                                
                             print(f"Скопировано медиа (пост {msg.id})")
                     elif final_text:
                         await client.send_message(target_channel, final_text)
