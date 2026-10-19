@@ -2,7 +2,7 @@ import os
 import asyncio
 import json
 import uuid
-import re # Импортируем модуль для регулярных выражений
+import re
 import requests
 import urllib3
 from telethon import TelegramClient
@@ -77,6 +77,7 @@ def get_gigachat_token():
         return None
 
 def rewrite_text(text, token):
+    """Переписывает текст и добавляет комментарий автора"""
     if not token or not text:
         return text
     try:
@@ -85,13 +86,21 @@ def rewrite_text(text, token):
             'Content-Type': 'application/json',
             'Authorization': f'Bearer {token}'
         }
-        prompt = f"Перепиши этот текст другими словами, сохрани смысл, сделай его живым и коротким. Верни только готовый текст без лишних комментариев:\n\n{text}"
+        
+        # --- НОВЫЙ ПРОМПТ (сдержанный, но живой) ---
+        prompt = (
+            f"Ты — опытный редактор популярного новостного Telegram-канала. Твоя задача — взять сырой текст новости и сделать из него качественный, цепляющий пост.\n"
+            f"1. Перепиши текст своими словами (сделай рерайт), сохранив все факты и смысл, но убрав канцелярит. Сделай текст коротким и удобным для чтения.\n"
+            f"2. В конце добавь пустую строку и напиши короткий (1-2 предложения) комментарий от лица автора канала. Комментарий должен быть сдержанным, но живым — как мнение умного человека, который наблюдает за ситуацией (с легкой долей иронии, если это уместно по контексту, но без злого сарказма и пошлости).\n"
+            f"3. ВАЖНО: Верни только готовый текст. Не пиши вводных слов вроде 'Вот ваш текст:', не используй кавычки для всего текста.\n\n"
+            f"Исходный текст:\n{text}"
+        )
         
         payload = {
             "model": "GigaChat",
             "messages": [{"role": "user", "content": prompt}],
-            "temperature": 0.8,
-            "max_tokens": 500
+            "temperature": 0.85, # Чуть повысили температуру для креативности
+            "max_tokens": 600
         }
         
         response = requests.post(url, headers=headers, json=payload, verify=False, timeout=60)
@@ -126,13 +135,13 @@ def clean_universal(text):
     if not text:
         return text
     
-    # 1. Удаляем все @упоминания (например, @topor, @futuread)
+    # 1. Удаляем все @упоминания
     text = re.sub(r'@\w+', '', text)
     
     # 2. Удаляем все HTTP/HTTPS ссылки
     text = re.sub(r'https?://\S+', '', text)
     
-    # 3. Удаляем фразы, призывающие подписаться (вместе с остатками ссылок)
+    # 3. Удаляем фразы, призывающие подписаться
     subscribe_patterns = [
         r'[Пп]одписаться[^\n]*', 
         r'[Пп]одписывайтесь[^\n]*',
@@ -143,11 +152,10 @@ def clean_universal(text):
     for pattern in subscribe_patterns:
         text = re.sub(pattern, '', text)
     
-    # 4. Убираем лишние пустые строки и пробелы, которые остались после удаления
+    # 4. Убираем лишние пустые строки
     text = re.sub(r'\n\s*\n', '\n\n', text).strip()
     
-    # 5. Если после очистки осталось меньше 5 символов (например, было только "Подписаться"),
-    # возвращаем None, чтобы скрипт пропустил этот пост
+    # 5. Если осталось слишком мало текста, возвращаем None
     if len(text) < 5:
         return None
         
@@ -190,7 +198,16 @@ async def main():
                 try:
                     final_text = msg.text or ""
                     
-                    # 1. Переписываем текст
+                    # 1. Сначала ОЧИЩАЕМ текст от ссылок (чтобы GigaChat их не видел)
+                    if final_text:
+                        final_text = clean_universal(final_text)
+                    
+                    # Если после очистки ничего не осталось — пропускаем
+                    if final_text is None:
+                         print(f"Пост {msg.id} пропущен (в оригинале были только ссылки).")
+                         continue
+
+                    # 2. Теперь ОТПРАВЛЯЕМ чистый текст в GigaChat
                     if final_text and giga_token:
                         print(f"Переписываем текст поста {msg.id}...")
                         final_text = rewrite_text(final_text, giga_token)
@@ -199,14 +216,6 @@ async def main():
                     if giga_token and final_text is None:
                         print(f"Пост {msg.id} пропущен (фильтр GigaChat).")
                         continue
-                    
-                    # 2. Очищаем от ссылок
-                    final_text = clean_universal(final_text)
-                    
-                    # Если после очистки текст стал пустым (были только ссылки), пропускаем
-                    if final_text is None:
-                         print(f"Пост {msg.id} пропущен (после очистки не осталось текста).")
-                         continue
 
                     # 3. Отправляем
                     if msg.media:
