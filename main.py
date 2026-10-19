@@ -35,7 +35,7 @@ source_channels = priority_channels + secondary_channels
 HISTORY_FILE = 'history.json'
 
 # =====================================================================
-# 👇👇👇 ШАГ 2: ОЧИСТКА ТЕКСТА (ПОЛНАЯ) 👇👇👇
+# 👇👇👇 ШАГ 2: ОЧИСТКА ТЕКСТА 👇👇👇
 # =====================================================================
 def clean_universal(text):
     if not text:
@@ -75,7 +75,8 @@ def clean_universal(text):
     # 7. Убираем лишние пустые строки
     text = re.sub(r'\n\s*\n', '\n\n', text).strip()
     
-    if len(text) < 5 or not re.search(r'[а-яА-Яa-zA-Z]', text):
+    # Если после очистки осталось меньше 10 символов — это мусор
+    if len(text) < 10 or not re.search(r'[а-яА-Яa-zA-Z]', text):
         return "" 
     return text
 
@@ -150,7 +151,6 @@ def rewrite_text(text, token):
             if any(marker in rewritten for marker in refusal_markers) or len(rewritten) < 15:
                 return None 
 
-            # Финальная зачистка от случайных символов
             rewritten = re.sub(r'[*_`#]', '', rewritten)
             rewritten = rewritten.replace('[', '').replace(']', '')
             
@@ -168,7 +168,7 @@ def rewrite_text(text, token):
 
 
 # =====================================================================
-# 👇👇👇 ШАГ 4: ОСНОВНАЯ ЛОГИКА (ОТКАЗОУСТОЙЧИВАЯ) 👇👇👇
+# 👇👇👇 ШАГ 4: ОСНОВНАЯ ЛОГИКА (ЗАЩИТА ОТ МУСОРА) 👇👇👇
 # =====================================================================
 def load_history():
     if os.path.exists(HISTORY_FILE):
@@ -206,16 +206,17 @@ async def process_message(msg, source_channel, client, copied_ids, target_texts,
         if final_text:
             final_text = clean_universal(final_text)
         
-        if not final_text and not msg.media:
+        # 🚨 КРИТИЧЕСКОЕ ИСПРАВЛЕНИЕ: Если текста нет, мы ПРОПУСКАЕМ пост.
+        # Больше никаких картинок без описания (типа Vinted).
+        if not final_text:
+            print(f"Пост {msg.id} пропущен (нет текста для обработки).")
             return False
 
         if final_text and giga_token:
             final_text = rewrite_text(final_text, giga_token)
         
-        if final_text is None and msg.media:
-            final_text = ""
-        
-        if final_text is None and not msg.media:
+        # Если нейросеть не смогла обработать текст, пропускаем
+        if final_text is None:
             return False
 
         if final_text and any(final_text[:50] in t for t in target_texts):
@@ -223,26 +224,28 @@ async def process_message(msg, source_channel, client, copied_ids, target_texts,
             return False
 
         posted = False
+        
+        # Отправка (теперь мы знаем, что текст 100% есть)
         if msg.media:
             try:
                 file_path = await msg.download_media(file="/tmp/")
                 if file_path:
-                    if final_text and len(final_text) > 1024:
+                    if len(final_text) > 1024:
                         await client.send_file(target_channel, file_path)
                         await client.send_message(target_channel, final_text)
                     else:
                         await client.send_file(
                             target_channel, 
                             file_path, 
-                            caption=final_text if final_text else None
+                            caption=final_text
                         )
                     os.remove(file_path)
-                    print(f"Скопировано медиа (пост {msg.id} из {source_channel})")
+                    print(f"Скопировано медиа с текстом (пост {msg.id} из {source_channel})")
                     posted = True
             except Exception as media_err:
                 print(f"Ошибка скачивания/отправки медиа {msg.id}: {media_err}")
                 
-        elif final_text:
+        else:
             await client.send_message(target_channel, final_text)
             print(f"Скопирован текст (пост {msg.id} из {source_channel})")
             posted = True
