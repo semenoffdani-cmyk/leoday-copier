@@ -228,7 +228,7 @@ async def process_message(msg, source_channel, client, copied_ids, target_texts,
             print(f"Пост {msg.id} пропущен (такой текст уже есть в канале).")
             return False
 
-        # ЗАЩИТА ОТ СЛИШКОМ ДЛИННЫХ ТЕКСТОВ (чтобы не упасть с ошибкой)
+        # ЗАЩИТА ОТ СЛИШКОМ ДЛИННЫХ ТЕКСТОВ
         if len(final_text) > 4000:
             final_text = final_text[:4000] + "..."
 
