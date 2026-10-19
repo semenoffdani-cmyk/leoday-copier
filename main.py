@@ -18,6 +18,10 @@ target_channel = os.environ['TARGET_CHANNEL']
 # Данные для GigaChat
 giga_client_id = os.environ.get('GIGACHAT_CLIENT_ID')
 giga_client_secret = os.environ.get('GIGACHAT_CLIENT_SECRET')
+# --- ВРЕМЕННАЯ ПРОВЕРКА ---
+print(f"ПРОВЕРКА: ID = {giga_client_id is not None}")
+print(f"ПРОВЕРКА: SECRET = {giga_client_secret is not None}")
+# --------------------------
 
 # =====================================================================
 # ⬇️⬇️⬇️⬇️⬇️⬇️⬇️⬇️⬇️⬇️⬇️⬇️⬇️⬇️⬇️⬇️⬇️⬇️⬇️⬇️⬇️⬇️⬇️⬇️⬇️⬇️⬇️⬇️⬇️⬇️⬇️⬇️⬇️
