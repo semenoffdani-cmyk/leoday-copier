@@ -2,8 +2,14 @@ name: Copy Financial Posts RSS
 
 on:
   schedule:
-    - cron: '*/30 * * * *'
+    # Смещаем минуты: 2, 7, 12, 17... вместо 0, 5, 10. Это обходит пиковую нагрузку.
+    - cron: '2,7,12,17,22,27,32,37,42,47,52,57 * * * *'
   workflow_dispatch:
+
+# Предотвращает наложение запусков друг на друга (защита от конфликтов при git push)
+concurrency:
+  group: ${{ github.workflow }}
+  cancel-in-progress: true
 
 permissions:
   contents: write
