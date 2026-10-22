@@ -27,6 +27,9 @@ if not BOT_TOKEN or not CHAT_ID:
 
 HISTORY_FILE = 'history.json'
 
+# =====================================================================
+# 📡 ИСТОЧНИКИ (RSS ЛЕНТЫ)
+# =====================================================================
 RSS_FEEDS = [
     'https://rssexport.rbc.ru/rbcnews/news/30/full.rss',
     'https://www.cbr.ru/rss/RssNews',
@@ -157,7 +160,6 @@ def rewrite_text(text, token):
         if 'choices' in result:
             rewritten = result['choices'][0]['message']['content'].strip()
             
-            # Если нейросеть поняла, что новость не по теме, и написала ОТКАЗ
             if "ОТКАЗ" in rewritten.upper():
                 print("⏭️ GigaChat определил новость как нефинансовую (ОТКАЗ).")
                 return None
@@ -245,14 +247,12 @@ def main():
     
     new_posts_count = 0
 
-    # Обязательные финансовые слова (хотя бы одно должно быть)
     FINANCIAL_KEYWORDS = [
         'ставк', 'рубл', 'инфляц', 'цб ', 'банк', 'акци', 'нефт', 'бюджет', 
         'налог', 'финанс', 'кредит', 'вклад', 'бирж', 'доллар', 'евро', 
         'рынок', 'экономик', 'компан', 'убыт', 'прибыл', 'тариф', 'цен'
     ]
 
-    # 🚫 Черный список (если есть хотя бы одно слово — новость пропускается)
     BLACKLIST_KEYWORDS = [
         'тренер', 'матч', 'гол', 'футбол', 'хоккей', 'спорт', 'чемпионат', 
         'кубок', 'олимпиад', 'клуб', 'игрок', 'погиб', 'убий', 'дтп', 
@@ -283,12 +283,10 @@ def main():
                 if len(text_to_check) < 30:
                     continue
 
-                # 1. Проверка на черный список (спорт, криминал и т.д.)
                 if any(bad_word in text_to_check for bad_word in BLACKLIST_KEYWORDS):
                     print(f"⏭️ Пропуск (черный список): {title[:40]}...")
                     continue
 
-                # 2. Проверка на наличие финансовых слов
                 matched_keyword = next((kw for kw in FINANCIAL_KEYWORDS if kw in text_to_check), None)
                 if not matched_keyword:
                     continue
@@ -304,12 +302,16 @@ def main():
                 print("Генерация постера...")
                 image_bytes = generate_image_gigachat(token)
                 
+                # 🔗 ДОБАВЛЯЕМ ССЫЛКУ НА ИСТОЧНИК
+                source_link = f"\n\n🔗 <a href='{news_id}'>Источник</a>"
+                text_with_source = final_text + source_link
+                
                 success = False
                 if image_bytes:
-                    success = send_photo(final_text, image_bytes)
+                    success = send_photo(text_with_source, image_bytes)
                 else:
                     print("Картинка не сгенерирована. Отправляем только текст.")
-                    success = send_text(final_text)
+                    success = send_text(text_with_source)
                 
                 if success:
                     print("✅ Опубликовано!")
