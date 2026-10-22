@@ -37,17 +37,16 @@ jobs:
         run: python main.py
 
       # Сохранение истории, векторов и сырых ответов GigaChat
-      - name: Save history, embeddings and raw log
+           - name: Save history and embeddings
         run: |
           git config --local user.email "action@github.com"
           git config --local user.name "GitHub Action"
           
           if [ -f history.json ]; then git add history.json; fi
           if [ -f embeddings.json ]; then git add embeddings.json; fi
-          if [ -f raw_gigachat.txt ]; then git add raw_gigachat.txt; fi
           
           if ! git diff --staged --quiet; then
-            git commit -m "Update history, embeddings and raw log [skip ci]"
+            git commit -m "Update history and embeddings [skip ci]"
             git push
           else
             echo "Нет изменений для сохранения."
