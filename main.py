@@ -12,6 +12,7 @@ import urllib.parse
 import random
 from datetime import datetime
 
+# Отключаем предупреждения о небезопасном соединении (нужно для GigaChat)
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 # =====================================================================
@@ -28,6 +29,9 @@ if not BOT_TOKEN or not CHAT_ID:
 
 HISTORY_FILE = 'history.json'
 
+# =====================================================================
+# 📡 ИСТОЧНИКИ (RSS ЛЕНТЫ)
+# =====================================================================
 RSS_FEEDS = [
     'https://rssexport.rbc.ru/rbcnews/news/30/full.rss',
     'https://www.cbr.ru/rss/RssNews',
@@ -35,7 +39,7 @@ RSS_FEEDS = [
 ]
 
 # =====================================================================
-# 🧹 УТИЛИТЫ
+# 🧹 ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ
 # =====================================================================
 def clean_text(text):
     if not text:
@@ -67,11 +71,16 @@ def save_history(history):
         print(f"Ошибка сохранения истории: {e}")
 
 def fix_title_case(text):
+    """Исправляет Заглавные Буквы В Каждом Слове на нормальный регистр"""
     lines = text.split('\n')
     fixed_lines = []
+    
     for line in lines:
-        if line.startswith('<b>') and '</b>' in line:
-            match = re.search(r'<b>(.*?)</b>(.*)', line)
+        # ИСПРАВЛЕНИЕ БАГА: strip() убирает пробелы в начале строки, чтобы проверка сработала
+        clean_line = line.strip()
+        
+        if clean_line.startswith('<b>') and '</b>' in clean_line:
+            match = re.search(r'<b>(.*?)</b>(.*)', clean_line)
             if match:
                 heading = match.group(1).lower().capitalize()
                 body = match.group(2).strip()
@@ -81,16 +90,17 @@ def fix_title_case(text):
                         body = body[0].upper() + body[1:]
                 fixed_lines.append(f"<b>{heading}</b>\n{body}")
         else:
-            words = line.split()
+            words = clean_line.split()
             if len(words) > 3 and sum(1 for w in words if w[:1].isupper()) > len(words) * 0.6:
-                line = line.lower()
-                if line:
-                    line = line[0].upper() + line[1:]
-            fixed_lines.append(line)
+                clean_line = clean_line.lower()
+                if clean_line:
+                    clean_line = clean_line[0].upper() + clean_line[1:]
+            fixed_lines.append(clean_line)
+            
     return '\n'.join(fixed_lines)
 
 # =====================================================================
-# 🤖 GIGACHAT
+# 🤖 GIGACHAT: ТЕКСТ И АВТОРИЗАЦИЯ
 # =====================================================================
 def get_gigachat_token():
     if not GIGA_CLIENT_ID or not GIGA_CLIENT_SECRET:
@@ -173,8 +183,6 @@ def generate_image_gigachat(token):
         url = "https://gigachat.devices.sberbank.ru/api/v1/chat/completions"
         headers = {'Content-Type': 'application/json', 'Authorization': f'Bearer {token}'}
         
-        # Отвязываем картинку от темы новости. Рисуем чистую абстракцию.
-        # Это гарантирует, что не будет Трампов, плакатов и текста.
         prompts = [
             "Abstract 3D financial background. Glowing blue and gold geometric shapes, floating coins, upward arrows. STRICTLY NO TEXT, NO LETTERS, NO NUMBERS.",
             "Modern minimalist 3D financial illustration. Dark blue background, gold glowing stock market lines, abstract crystals. STRICTLY NO TEXT, NO TYPOGRAPHY.",
@@ -270,7 +278,6 @@ def main():
     for feed_url in RSS_FEEDS:
         print(f"\nПроверка ленты: {feed_url}")
         try:
-            # МАГИЯ КОДИРОВКИ: feedparser сам определит правильную кодировку (UTF-8 или Windows-1251)
             feed = feedparser.parse(feed_url)
             print(f"Получено новостей из ленты: {len(feed.entries)}")
         except Exception as e:
@@ -286,10 +293,8 @@ def main():
                 title = clean_text(entry.title)
                 description = clean_text(getattr(entry, 'description', ''))
                 
-                # Проверяем на битые символы
                 text_to_check = f"{title}. {description}".lower()
                 if '�' in text_to_check:
-                    print(f"⏭️ Пропуск (битая кодировка в RSS): {title[:30]}...")
                     continue
                 
                 if len(text_to_check) < 30:
