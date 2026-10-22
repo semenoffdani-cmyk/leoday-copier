@@ -12,7 +12,6 @@ from datetime import datetime
 from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
 
-# Отключаем предупреждения о сертификатах
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 # =====================================================================
@@ -37,9 +36,7 @@ RSS_FEEDS = [
     'https://ria.ru/export/rss2/archive/index.xml'
 ]
 
-# 🚫 РАСШИРЕННЫЙ ЧЕРНЫЙ СПИСОК (Для мгновенного отсева мусора)
-# Включает спорт, ЧП, светскую хронику, военную/политическую лексику и криминал,
-# на котором нейросеть часто выдает "ОТКАЗ".
+# 🚫 РАСШИРЕННЫЙ ЧЕРНЫЙ СПИСОК
 BLACKLIST_REGEX = re.compile(
     r'тренер|матч|гол|футбол|хоккей|спорт|чемпионат|кубок|олимпиад|клуб|игрок|трусов|'
     r'погиб|убий|дтп|пожар|мчс|полици|суд|арест|взрыв|стрельб|теракт|мошенник|кража|ограблен|'
@@ -53,7 +50,7 @@ BLACKLIST_REGEX = re.compile(
     re.IGNORECASE
 )
 
-# ✅ БЕЛЫЙ СПИСОК (Что мы хотим видеть)
+# ✅ БЕЛЫЙ СПИСОК
 KEYWORDS_REGEX = re.compile(
     r'ставк|рубл|инфляц|цб |банк|акци|нефт|бюджет|налог|финанс|кредит|вклад|бирж|доллар|'
     r'евро|рынок|экономик|компан|убыт|прибыл|тариф|цен|рецесс|дефляц|профицит|дефицит|'
@@ -65,7 +62,7 @@ KEYWORDS_REGEX = re.compile(
     r'робот|цифров|гаджет|смартфон|openai|chatgpt|яндекс|сбер|айти|ит-|ии |чип|процессор|'
     r'софт|приложени|кибербезопасн|сервер|облак|импортозамещен|apple|tesla|microsoft|'
     r'google|amazon|meta|nvidia|samsung|intel|spacex|энергет|дизел|топлив|баррел|девальвац|'
-    r'ревальвац|хеджирован|фьючерс|опцион|трейдер', re.IGNORECASE
+    r'ревальвац|хеджирован|фьючерс|опцион|трейдер|тайдан', re.IGNORECASE
 )
 
 # Настройка сессии с автоматическими повторными попытками (Retry)
@@ -79,14 +76,10 @@ SESSION.mount('https://', HTTPAdapter(max_retries=retries))
 def clean_text(text):
     if not text:
         return ""
-    # Удаляем HTML-теги
     text = re.sub(r'<[^>]+>', '', text)
-    # Раскодируем сущности (например, &quot; в кавычки)
     text = html.unescape(text)
-    # Убираем лишние пробелы и ссылки
     text = re.sub(r'\s+', ' ', text)
     text = re.sub(r'https?://\S+', '', text)
-    # Экранируем обратно для безопасности Telegram
     return html.escape(text).strip()
 
 def load_history():
@@ -100,7 +93,6 @@ def load_history():
 
 def save_history(history):
     try:
-        # Обрезаем словарь, оставляя только последние 2000 записей (оптимизация памяти)
         if len(history) > 2000:
             history = dict(list(history.items())[-2000:])
         with open(HISTORY_FILE, 'w', encoding='utf-8') as f:
@@ -169,24 +161,38 @@ def rewrite_text(text, token):
     try:
         url = "https://gigachat.devices.sberbank.ru/api/v1/chat/completions"
         headers = {'Content-Type': 'application/json', 'Authorization': f'Bearer {token}'}
+        
+        # УСИЛЕННЫЙ ПРОМПТ С ПРОВЕРКОЙ ГРАММАТИКИ И ПАДЕЖЕЙ
         payload = {
             "model": "GigaChat",
             "messages": [
-                {"role": "system", "content": "Ты — профессиональный редактор финансового канала. Пиши строго по шаблону. Если новость НЕ ОТНОСИТСЯ к экономике, финансам, бизнесу или технологиям, напиши ровно одно слово: ОТКАЗ. Игнорируй обрывки ссылок и мусор."},
-                {"role": "user", "content": f"Напиши пост строго по шаблону:\n\n<b>Что произошло?</b>\n\n[1-2 предложения сути]\n\n<b>Что это значит для ваших денег и работы?</b>\n\n[1-2 предложения о влиянии]\n\n<b>За чем следить дальше?</b>\n\n[1 предложение]\n\nТекст новости:\n{text}"}
+                {"role": "system", "content": (
+                    "Ты — профессиональный редактор финансового канала. "
+                    "Пиши строго по шаблону. "
+                    "КРИТИЧЕСКИ ВАЖНО: Проверяй падежи и согласование слов! "
+                    "Помни: 'Банк России' — это мужской род. Правильно писать: 'Банк России назначил', а НЕ 'Банка России назначила'. "
+                    "Если новость НЕ ОТНОСИТСЯ к экономике, финансам, бизнесу или технологиям, напиши ровно одно слово: ОТКАЗ. "
+                    "Игнорируй обрывки ссылок и мусор."
+                )},
+                {"role": "user", "content": (
+                    f"Напиши пост строго по шаблону:\n\n"
+                    f"<b>Что произошло?</b>\n\n[1-2 предложения сути. Внимательно следи за падежами!]\n\n"
+                    f"<b>Что это значит для ваших денег и работы?</b>\n\n[1-2 предложения о влиянии]\n\n"
+                    f"<b>За чем следить дальше?</b>\n\n[1 предложение]\n\n"
+                    f"Текст новости:\n{text}"
+                )}
             ],
             "temperature": 0.3, "max_tokens": 1000
         }
+        
         response = SESSION.post(url, headers=headers, json=payload, verify=VERIFY_SSL, timeout=90)
         if response.status_code != 200: return None
             
         rewritten = response.json()['choices'][0]['message']['content'].strip()
         
-        # Защита от отказов нейросети
         if any(root in rewritten.lower() for root in ["генеративн", "облада", "мнени", "ограничен", "неправильн", "благодарим", "отказ"]):
             return None
             
-        # Защита от "пустых" ответов
         if len(rewritten) < 50:
             return None
             
@@ -237,11 +243,8 @@ def generate_image_gigachat(news_text, token):
 # =====================================================================
 def send_photo(text, image_bytes):
     url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendPhoto"
-    
-    # Жесткая обрезка под лимит подписи к фото в Telegram (1024 символа)
     if len(text) > 1000:
         text = text[:1000] + "..."
-
     try:
         res = SESSION.post(url, data={"chat_id": CHAT_ID, "caption": text, "parse_mode": "HTML"}, files={"photo": ("poster.jpg", image_bytes, "image/jpeg")}, timeout=30)
         return res.ok
@@ -285,7 +288,6 @@ def main():
                 
                 if '�' in text_to_check or len(text_to_check) < 30: continue
 
-                # Фильтрация по Черному и Белому спискам (за доли миллисекунд)
                 if BLACKLIST_REGEX.search(text_to_check): 
                     continue
                 
@@ -304,7 +306,6 @@ def main():
                 print("Генерация постера...")
                 image_bytes = generate_image_gigachat(text_to_check, token)
                 
-                # Собираем финальный пост
                 text_to_publish = category_header + final_text + f"\n\n🔗 <a href='{news_id}'>Источник</a>"
                 
                 if image_bytes:
@@ -317,7 +318,7 @@ def main():
                     history[news_id] = datetime.now().isoformat()
                     save_history(history)
                     new_posts_count += 1
-                    time.sleep(4) # Пауза, чтобы не спамить Telegram
+                    time.sleep(4)
             except Exception as e:
                 print(f"Ошибка при обработке: {e}")
                 continue
