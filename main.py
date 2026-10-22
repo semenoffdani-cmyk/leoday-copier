@@ -207,7 +207,7 @@ def cosine_similarity(vec1, vec2):
     return dot_product / (norm1 * norm2)
 
 # =====================================================================
-# 🤖 GIGACHAT: РЕРАЙТ ТЕКСТА (СЫРОЙ ТЕКСТ + ЖЕСТКОЕ ФОРМАТИРОВАНИЕ)
+# 🤖 GIGACHAT: РЕРАЙТ ТЕКСТА (УВЕЛИЧЕНА СУТЬ)
 # =====================================================================
 def rewrite_text(text, token, source_url):
     if not token or not text: return None
@@ -225,7 +225,7 @@ def rewrite_text(text, token, source_url):
                 )},
                 {"role": "user", "content": (
                     f"Напиши ровно 3 абзаца текста, разделенных переносом строки. Без тегов, без жирного шрифта, без отступов.\n"
-                    f"1. Суть новости (1-2 предложения).\n"
+                    f"1. Суть новости (2-3 предложения, не меньше 100 символов).\n"
                     f"2. Что это значит для кошелька или работы (1-2 предложения).\n"
                     f"3. Что дальше (1 предложение).\n\n"
                     f"Текст новости:\n{text}"
@@ -250,14 +250,17 @@ def rewrite_text(text, token, source_url):
             print("DEBUG: GigaChat выдал слишком короткий текст.")
             return None
         
-        # 🚨 ЖЕСТКАЯ ОЧИСТКА ОТ ПУСТЫХ СТРОК И ПРОБЕЛОВ
         paragraphs = [p.strip() for p in raw_rewritten.split('\n') if p.strip()]
         
         if len(paragraphs) < 3:
             print(f"DEBUG: GigaChat вернул не 3 абзаца (а {len(paragraphs)}).")
             return None
             
-        # 🚨 ЖЕСТКОЕ ФОРМАТИРОВАНИЕ (Код сам ставит теги и отступы)
+        # 🚨 ПРОВЕРКА: Если первый абзац слишком короткий, пропускаем новость
+        if len(paragraphs[0]) < 100:
+            print(f"DEBUG: Первый абзац слишком короткий ({len(paragraphs[0])} символов). Пропуск.")
+            return None
+            
         final_text = (
             f"{paragraphs[0]}\n\n"
             f"<b>Что это значит?</b>\n\n"
@@ -272,7 +275,7 @@ def rewrite_text(text, token, source_url):
         return None
 
 # =====================================================================
-# 🎨 GIGACHAT: ГЕНЕРАЦИЯ КАРТИНОК (С ЗАЩИТОЙ ОТ ТЕКСТА)
+# 🎨 GIGACHAT: ГЕНЕРАЦИЯ КАРТИНОК
 # =====================================================================
 def generate_image_gigachat(news_text, token):
     if not token: return None
@@ -284,7 +287,6 @@ def generate_image_gigachat(news_text, token):
         
         base_style = "Cinematic lighting, Octane render, 8k resolution, minimalist corporate style, deep navy blue and metallic gold colors, highly detailed."
         
-        # Усиленный запрет на текст и буквы
         prompt = (
             f"Create a conceptual 3D illustration that metaphorically represents this news: '{short_text}'. "
             f"Use {base_style}. NO TEXT, NO LETTERS, NO ALPHABET, NO WORDS, NO NUMBERS, NO LOGOS."
