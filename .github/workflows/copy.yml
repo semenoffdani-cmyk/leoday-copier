@@ -23,8 +23,9 @@ jobs:
       - name: Install dependencies
         run: pip install -r requirements.txt
 
+      # Скачиваем сертификат Минцифры с защитой от сбоя
       - name: Download Russian Trusted Root CA
-        run: wget https://gu-st.ru/content/Other/doc/russiantrustedca.pem
+        run: wget https://gu-st.ru/content/Other/doc/russiantrustedca.pem || echo "Сертификат не скачался, но продолжаем работу"
 
       - name: Run copier
         env:
