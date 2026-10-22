@@ -91,13 +91,10 @@ def remove_garbage(text):
         if word.lower() in known_brands: return word
         return ''
     text = re.sub(r'\b[a-zA-Z]{4,}\b', replace_word, text)
-    # Жесткая зачистка известных багов
     text = re.sub(r'(?i)amburg\w*', '', text)
-    text = re.sub(r'(?i)domclick', '', text)
     return text
 
 def fix_caps(text):
-    """Превращает КАПС в нормальный регистр (с заглавной буквы)"""
     if text.isupper():
         text = text.capitalize()
         text = re.sub(r'\.\s*([а-яa-z])', lambda m: '. ' + m.group(1).upper(), text)
@@ -110,7 +107,7 @@ def clean_text(text):
     text = re.sub(r'\s+', ' ', text)
     text = re.sub(r'https?://\S+', '', text)
     text = remove_garbage(text) 
-    text = fix_caps(text)
+    text = fix_caps(text) 
     return html.escape(text).strip()
 
 def load_json(filepath):
@@ -214,7 +211,7 @@ def rewrite_text(text, token):
                     "Ты — профессиональный редактор финансового канала. Пиши строго по шаблону. "
                     "КРИТИЧЕСКИ ВАЖНО: Проверяй падежи и согласование слов! "
                     "Помни: 'Банк России' — это мужской род. Правильно: 'Банк России назначил', а НЕ 'Банка России назначила'. "
-                    "Если новость НЕ ОТНОСИТСЯ к экономике, финансам, бизнесу или технологиям, напиши ровно одно слово: ОТКАЗ."
+                    "КРИТИЧЕСКИ ВАЖНО: НЕ приписывай Банку России (Центробанку) несуществующие функции! Он не занимается развитием бизнеса в Африке, не строит заводы и не выдает кредиты компаниям. Если в новости речь идет о другой организации, пиши именно её название."
                 )},
                 {"role": "user", "content": (
                     f"Напиши пост строго по этому шаблону (не добавляй ничего лишнего):\n\n"
@@ -233,22 +230,29 @@ def rewrite_text(text, token):
         if any(root in rewritten.lower() for root in ["генеративн", "облада", "мнени", "ограничен", "неправильн", "благодарим", "отказ"]): return None
         if len(rewritten) < 50: return None
         
+        # 1. Очистка и нормализация
         rewritten = re.sub(r'[*_`#]', '', rewritten)
         rewritten = fix_title_case(rewritten)
         
-        # 🚨 УДАЛЯЕМ ФРАЗЫ-ПАРАЗИТЫ
+        # 2. Удаляем фразы-паразиты
         rewritten = re.sub(r'(?i)банк россии не имеет отношения к данной информации\.?\s*', '', rewritten)
         rewritten = re.sub(r'(?i)amburg\w*', '', rewritten)
         rewritten = re.sub(r'(?i)domclick', '', rewritten)
         
-        # Удаляем фразу "Банк России" в начале, если она висит без сказуемого
-        rewritten = re.sub(r'(?i)^\s*банк россии\s*\n+', '', rewritten)
+        # 3. Исправляем регистр "Банк России"
+        rewritten = re.sub(r'(?i)банк россии', 'Банк России', rewritten)
         
+        # 4. Форматируем заголовки
         rewritten = re.sub(r'(?i)что это значит\?', '<b>Что это значит?</b>', rewritten)
         rewritten = re.sub(r'(?i)что дальше\?', '<b>Что дальше?</b>', rewritten)
         
+        # 5. Принудительные отступы (ДОБАВЛЯЕМ)
         rewritten = re.sub(r'\s*<b>', '\n\n<b>', rewritten)
         rewritten = re.sub(r'</b>\s*', '</b>\n\n', rewritten)
+        
+        # 🚨 6. УБИРАЕМ ЛИШНИЕ ПЕРНОСЫ (ПЫЛЕСОС)
+        # Эта строка находит 3 и более переноса строки подряд и заменяет их на 2 (один отступ)
+        rewritten = re.sub(r'\n{3,}', '\n\n', rewritten)
         
         return rewritten.strip()
     except Exception: return None
