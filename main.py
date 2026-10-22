@@ -8,11 +8,9 @@ import base64
 import urllib3
 import time
 import html
-import urllib.parse
 import random
 from datetime import datetime
 
-# Отключаем предупреждения о небезопасном соединении (нужно для GigaChat)
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 # =====================================================================
@@ -76,7 +74,6 @@ def fix_title_case(text):
     fixed_lines = []
     
     for line in lines:
-        # ИСПРАВЛЕНИЕ БАГА: strip() убирает пробелы в начале строки, чтобы проверка сработала
         clean_line = line.strip()
         
         if clean_line.startswith('<b>') and '</b>' in clean_line:
@@ -175,7 +172,7 @@ def rewrite_text(text, token):
         return text
 
 # =====================================================================
-# 🎨 ГЕНЕРАЦИЯ КАРТИНОК (ТОЛЬКО АБСТРАКЦИЯ)
+# 🎨 ГЕНЕРАЦИЯ КАРТИНОК (ТОЛЬКО GIGACHAT / KANDINSKY)
 # =====================================================================
 def generate_image_gigachat(token):
     if not token: return None
@@ -212,23 +209,6 @@ def generate_image_gigachat(token):
                 img_res = requests.get(dl_url, headers={'Authorization': f'Bearer {token}'}, verify=False, timeout=30)
                 if img_res.status_code == 200:
                     return img_res.content
-        return None
-    except Exception:
-        return None
-
-def generate_image_fallback():
-    try:
-        prompts = [
-            "abstract 3d financial background, blue and gold, glowing lines, no text, no letters",
-            "abstract 3d gold coins on dark blue background, no text, no numbers",
-            "minimalist 3d financial chart, glowing blue and gold, no typography"
-        ]
-        safe_prompt = urllib.parse.quote(random.choice(prompts))
-        url = f"https://image.pollinations.ai/prompt/{safe_prompt}?width=1024&height=1024&nologo=true"
-        headers = {'User-Agent': 'Mozilla/5.0'}
-        response = requests.get(url, headers=headers, timeout=40)
-        if response.status_code == 200:
-            return response.content
         return None
     except Exception:
         return None
@@ -308,17 +288,14 @@ def main():
                 
                 final_text = rewrite_text(f"{title}. {description}", token)
                 
-                print("Генерация абстрактного постера...")
+                print("Генерация постера (GigaChat)...")
                 image_bytes = generate_image_gigachat(token)
-                
-                if not image_bytes:
-                    print("Резервный генератор...")
-                    image_bytes = generate_image_fallback()
                 
                 success = False
                 if image_bytes:
                     success = send_photo(final_text, image_bytes)
                 else:
+                    print("GigaChat не смог сгенерировать картинку. Отправляем только текст.")
                     success = send_text(final_text)
                 
                 if success:
@@ -331,7 +308,7 @@ def main():
                 print(f"Ошибка при обработке: {e}")
                 continue
                 
-            if new_posts_count >= 3:
+            if new_posts_count >= 1:
                 print("\nЛимит постов на этот запуск выполнен.")
                 return
 
