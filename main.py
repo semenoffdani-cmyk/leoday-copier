@@ -27,7 +27,6 @@ if not BOT_TOKEN or not CHAT_ID:
 
 CERT_PATH = 'russiantrustedca.pem'
 VERIFY_SSL = CERT_PATH if os.path.exists(CERT_PATH) else False
-
 HISTORY_FILE = 'history.json'
 
 RSS_FEEDS = [
@@ -146,7 +145,6 @@ def rewrite_text(text, token):
                         f"<b>Что произошло?</b>\n\n[1-2 предложения сути]\n\n"
                         f"<b>Что это значит для ваших денег и работы?</b>\n\n[1-2 предложения о влиянии]\n\n"
                         f"<b>За чем следить дальше?</b>\n\n[1 предложение]\n\n"
-                        f"<b>💬 А вы как думаете?</b>\n\n[Придумай один короткий, но провокационный вопрос к читателям по теме новости. Вопрос должен быть таким, чтобы на него хотелось ответить в комментариях.]\n\n"
                         f"Текст новости:\n{text}"
                     )
                 }
@@ -174,8 +172,6 @@ def rewrite_text(text, token):
                 
             rewritten = re.sub(r'[*_`#]', '', rewritten)
             rewritten = fix_title_case(rewritten)
-            
-            # 🔑 МАГИЯ: Принудительно ставим пустую строку после каждого жирного заголовка
             rewritten = re.sub(r'</b>\s*', '</b>\n\n', rewritten)
             
             return rewritten.strip()
@@ -184,24 +180,54 @@ def rewrite_text(text, token):
         print(f"Ошибка рерайта: {e}")
         return None
 
-def generate_image_gigachat(token):
+# =====================================================================
+# 🎨 ГЕНЕРАЦИЯ КАРТИНОК (УМНЫЙ СЕМАНТИЧЕСКИЙ МАППИНГ)
+# =====================================================================
+def generate_image_gigachat(news_text, token):
     if not token: return None
     try:
         url = "https://gigachat.devices.sberbank.ru/api/v1/chat/completions"
         headers = {'Content-Type': 'application/json', 'Authorization': f'Bearer {token}'}
         
-        prompts = [
-            "Abstract 3D financial background. Glowing blue and gold geometric shapes, floating coins, upward arrows. STRICTLY NO TEXT, NO LETTERS, NO NUMBERS.",
-            "Modern minimalist 3D financial illustration. Dark blue background, gold glowing stock market lines, abstract crystals. STRICTLY NO TEXT, NO TYPOGRAPHY.",
-            "Abstract 3D rendering of financial growth. Gold spheres, neon blue grids, futuristic architecture. STRICTLY NO TEXT, NO WATERMARKS."
-        ]
-        random_prompt = random.choice(prompts)
-        
+        THEME_PROMPTS = {
+            'energy': "Abstract 3D oil drop, gas pipes and glowing energy lines, blue and gold colors",
+            'bank': "Abstract 3D classical bank building with columns made of gold, floating coins, blue background",
+            'tech': "Abstract 3D glowing microchip, robotic brain, neon blue and gold circuits",
+            'real_estate': "Abstract 3D modern minimalist house, golden keys, blue background",
+            'crypto': "Abstract 3D glowing bitcoin symbol, digital blocks, neon blue and gold",
+            'transport': "Abstract 3D futuristic train or airplane, golden tracks, blue background",
+            'market': "Abstract 3D stock market chart with glowing golden arrows going up, blue background",
+            'money': "Abstract 3D golden coins, floating banknotes, glowing blue arrows",
+            'default': "Abstract 3D financial background, glowing blue and gold geometric shapes, floating coins, upward arrows"
+        }
+
+        text_lower = news_text.lower()
+        selected_theme = THEME_PROMPTS['default']
+
+        if any(w in text_lower for w in ['нефт', 'газ', 'энерг', 'топлив']):
+            selected_theme = THEME_PROMPTS['energy']
+        elif any(w in text_lower for w in ['банк', 'цб', 'кредит', 'вклад', 'сбербанк']):
+            selected_theme = THEME_PROMPTS['bank']
+        elif any(w in text_lower for w in ['ии', 'нейросет', 'чип', 'робот', 'технолог']):
+            selected_theme = THEME_PROMPTS['tech']
+        elif any(w in text_lower for w in ['ипотек', 'дом', 'жкх', 'недвиж', 'квартир']):
+            selected_theme = THEME_PROMPTS['real_estate']
+        elif any(w in text_lower for w in ['крипт', 'биткоин', 'блокчейн']):
+            selected_theme = THEME_PROMPTS['crypto']
+        elif any(w in text_lower for w in ['самолет', 'авиа', 'жд', 'поезд', 'транспорт']):
+            selected_theme = THEME_PROMPTS['transport']
+        elif any(w in text_lower for w in ['акци', 'бирж', 'индекс', 'рынок', 'ставк']):
+            selected_theme = THEME_PROMPTS['market']
+        elif any(w in text_lower for w in ['рубл', 'доллар', 'евро', 'деньг', 'цен']):
+            selected_theme = THEME_PROMPTS['money']
+
+        final_prompt = f"{selected_theme}. Modern minimalist 3D style. STRICTLY NO TEXT, NO LETTERS, NO NUMBERS, NO WATERMARKS."
+
         payload = {
             "model": "GigaChat",
             "messages": [
                 {"role": "system", "content": "You are a 3D artist. Use text2image. Return only <img src=\"FILE_ID\"/>"},
-                {"role": "user", "content": random_prompt}
+                {"role": "user", "content": final_prompt}
             ],
             "function_call": "auto"
         }
@@ -316,7 +342,6 @@ def main():
                     continue
 
                 if any(bad_word in text_to_check for bad_word in BLACKLIST_KEYWORDS):
-                    print(f"⏭️ Пропуск (черный список): {title[:40]}...")
                     continue
 
                 matched_keyword = next((kw for kw in KEYWORDS if kw in text_to_check), None)
@@ -328,11 +353,10 @@ def main():
                 final_text = rewrite_text(f"{title}. {description}", token)
                 
                 if not final_text:
-                    print("⏭️ Пропуск: GigaChat не смог обработать текст.")
                     continue
                 
-                print("Генерация постера...")
-                image_bytes = generate_image_gigachat(token)
+                print("Генерация умного постера...")
+                image_bytes = generate_image_gigachat(text_to_check, token)
                 
                 source_link = f"\n\n🔗 <a href='{news_id}'>Источник</a>"
                 text_with_source = final_text + source_link
@@ -341,7 +365,6 @@ def main():
                 if image_bytes:
                     success = send_photo(text_with_source, image_bytes)
                 else:
-                    print("Картинка не сгенерирована. Отправляем только текст.")
                     success = send_text(text_with_source)
                 
                 if success:
@@ -355,7 +378,6 @@ def main():
                 continue
                 
             if new_posts_count >= 1:
-                print("\nЛимит постов на этот запуск выполнен.")
                 return
 
 if __name__ == '__main__':
