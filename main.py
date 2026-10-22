@@ -1,20 +1,22 @@
 import os
 import json
-import requests
-import feedparser
 import re
-import uuid
-import base64
-import urllib3
 import time
 import html
-import random
+import uuid
+import base64
+import requests
+import feedparser
+import urllib3
 from datetime import datetime
+from requests.adapters import HTTPAdapter
+from urllib3.util.retry import Retry
 
+# Отключаем предупреждения о сертификатах
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 # =====================================================================
-# 🔒 БЕЗОПАСНЫЕ НАСТРОЙКИ
+# ⚙️ НАСТРОЙКИ И КОНСТАНТЫ
 # =====================================================================
 BOT_TOKEN = os.environ.get('BOT_TOKEN')
 CHAT_ID = os.environ.get('TARGET_CHANNEL')
@@ -35,17 +37,57 @@ RSS_FEEDS = [
     'https://ria.ru/export/rss2/archive/index.xml'
 ]
 
+# 🚫 РАСШИРЕННЫЙ ЧЕРНЫЙ СПИСОК (Для мгновенного отсева мусора)
+# Включает спорт, ЧП, светскую хронику, военную/политическую лексику и криминал,
+# на котором нейросеть часто выдает "ОТКАЗ".
+BLACKLIST_REGEX = re.compile(
+    r'тренер|матч|гол|футбол|хоккей|спорт|чемпионат|кубок|олимпиад|клуб|игрок|трусов|'
+    r'погиб|убий|дтп|пожар|мчс|полици|суд|арест|взрыв|стрельб|теракт|мошенник|кража|ограблен|'
+    r'погод|ураган|наводнен|паводок|землетрясен|циклон|шторм|шоу-бизнес|знаменитост|'
+    r'актер|певиц|развод|звезд|сериал|концерт|фестивал|инстаграм|тикток|блогер|скандал|'
+    r'шок|сенсац|ужас|эксклюзив|гороскоп|астролог|рецепт|диет|похуден|отношени|коронавирус|'
+    r'вакцин|грипп|заболеваемост|эпидеми|симптом|мобилизац|войн|санкц|спецоперац|'
+    r'трамп|байден|путин|госдум|депутат|оппозиц|митинг|лгбт|навальн|мигрант|религи|'
+    r'церковь|бпла|атак|сбит|ракет|украин|дмитриев|воробьев|мид|нато|выборы|конгресс|'
+    r'сенат|парламент|уголовн|следствен|пострадав|жертв|эвакуац|обнал|отмыван|коррупц|взятк', 
+    re.IGNORECASE
+)
+
+# ✅ БЕЛЫЙ СПИСОК (Что мы хотим видеть)
+KEYWORDS_REGEX = re.compile(
+    r'ставк|рубл|инфляц|цб |банк|акци|нефт|бюджет|налог|финанс|кредит|вклад|бирж|доллар|'
+    r'евро|рынок|экономик|компан|убыт|прибыл|тариф|цен|рецесс|дефляц|профицит|дефицит|'
+    r'росстат|ввп|инвест|дивиденд|облигац|фондов|индекс|капитализац|ipo|актив|крипт|'
+    r'биткоин|блокчейн|трейд|мосбирж|зарплат|пенси|ипотек|банкрот|субсиди|пособи|'
+    r'дороговизн|жкх|коммуналк|штраф|льгот|маткапитал|сбербанк|втб|тинькофф|т-банк|'
+    r'альфа-банк|госуслуг|сбой|сделк|поглощен|стартап|корпорац|монопол|франшиз|ритейл|'
+    r'маркетплейс|wildberries|ozon|пошлин|экспорт|импорт|нейросет|искусственн|технолог|'
+    r'робот|цифров|гаджет|смартфон|openai|chatgpt|яндекс|сбер|айти|ит-|ии |чип|процессор|'
+    r'софт|приложени|кибербезопасн|сервер|облак|импортозамещен|apple|tesla|microsoft|'
+    r'google|amazon|meta|nvidia|samsung|intel|spacex|энергет|дизел|топлив|баррел|девальвац|'
+    r'ревальвац|хеджирован|фьючерс|опцион|трейдер', re.IGNORECASE
+)
+
+# Настройка сессии с автоматическими повторными попытками (Retry)
+SESSION = requests.Session()
+retries = Retry(total=3, backoff_factor=1, status_forcelist=[429, 500, 502, 503, 504])
+SESSION.mount('https://', HTTPAdapter(max_retries=retries))
+
 # =====================================================================
 # 🧹 ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ
 # =====================================================================
 def clean_text(text):
     if not text:
         return ""
+    # Удаляем HTML-теги
     text = re.sub(r'<[^>]+>', '', text)
+    # Раскодируем сущности (например, &quot; в кавычки)
+    text = html.unescape(text)
+    # Убираем лишние пробелы и ссылки
     text = re.sub(r'\s+', ' ', text)
     text = re.sub(r'https?://\S+', '', text)
-    text = html.escape(text)
-    return text.strip()
+    # Экранируем обратно для безопасности Telegram
+    return html.escape(text).strip()
 
 def load_history():
     if os.path.exists(HISTORY_FILE):
@@ -58,10 +100,9 @@ def load_history():
 
 def save_history(history):
     try:
+        # Обрезаем словарь, оставляя только последние 2000 записей (оптимизация памяти)
         if len(history) > 2000:
-            keys_to_remove = list(history.keys())[:-2000]
-            for k in keys_to_remove:
-                del history[k]
+            history = dict(list(history.items())[-2000:])
         with open(HISTORY_FILE, 'w', encoding='utf-8') as f:
             json.dump(history, f, ensure_ascii=False, indent=2)
     except Exception as e:
@@ -79,39 +120,26 @@ def fix_title_case(text):
                 body = match.group(2).strip()
                 if body and sum(1 for w in body.split() if w[:1].isupper()) > len(body.split()) * 0.5:
                     body = body.lower()
-                    if body:
-                        body = body[0].upper() + body[1:]
+                    if body: body = body[0].upper() + body[1:]
                 fixed_lines.append(f"<b>{heading}</b>\n{body}")
         else:
             words = clean_line.split()
             if len(words) > 3 and sum(1 for w in words if w[:1].isupper()) > len(words) * 0.6:
                 clean_line = clean_line.lower()
-                if clean_line:
-                    clean_line = clean_line[0].upper() + clean_line[1:]
+                if clean_line: clean_line = clean_line[0].upper() + clean_line[1:]
             fixed_lines.append(clean_line)
     return '\n'.join(fixed_lines)
 
 # =====================================================================
-# 🏷️ УМНАЯ СИСТЕМА РУБРИК (Без дублирования названия)
+# 🏷️ УМНАЯ СИСТЕМА РУБРИК
 # =====================================================================
 def detect_category(text):
-    text = text.lower()
-    
-    # 1. ЭНЕРГЕТИКА
-    if any(w in text for w in ['нефт', 'газ', 'энергет', 'топлив', 'дизел', 'бензин', 'баррел']):
+    if re.search(r'нефт|газ|энергет|топлив|дизел|бензин|баррел', text, re.IGNORECASE):
         return "🛢️ <b>ЭНЕРГЕТИКА</b>\n\n"
-
-    # 2. ТЕХНОЛОГИИ
-    tech_keywords = ['нейросет', 'искусственн', 'чип', 'робот', 'технолог', 'apple', 'openai', 'смартфон', 'гаджет', 'ит-', 'айти', 'кибербезопасн']
-    if any(w in text for w in tech_keywords) or re.search(r'\bии\b', text):
+    elif re.search(r'нейросет|искусственн|чип|робот|технолог|apple|openai|смартфон|гаджет|ит-|айти|кибербезопасн|\bии\b', text, re.IGNORECASE):
         return "🤖 <b>ТЕХНОЛОГИИ</b>\n\n"
-
-    # 3. ДЕНЬГИ
-    money_keywords = ['вклад', 'кредит', 'ипотек', 'зарплат', 'пенси', 'жкх', 'рубл', 'доллар', 'евро', 'сбербанк', 'втб', 'тинькофф', 'банк']
-    if any(w in text for w in money_keywords):
+    elif re.search(r'вклад|кредит|ипотек|зарплат|пенси|жкх|рубл|доллар|евро|сбербанк|втб|тинькофф|банк', text, re.IGNORECASE):
         return "💸 <b>ДЕНЬГИ</b>\n\n"
-
-    # 4. ЭКОНОМИКА (По умолчанию)
     return "📊 <b>ЭКОНОМИКА</b>\n\n"
 
 # =====================================================================
@@ -123,7 +151,6 @@ def get_gigachat_token():
     try:
         auth_str = f"{GIGA_CLIENT_ID.strip()}:{GIGA_CLIENT_SECRET.strip()}"
         auth_b64 = base64.b64encode(auth_str.encode()).decode()
-        
         url = "https://ngw.devices.sberbank.ru:9443/api/v2/oauth"
         headers = {
             'Content-Type': 'application/x-www-form-urlencoded',
@@ -131,13 +158,9 @@ def get_gigachat_token():
             'RqUID': str(uuid.uuid4()),
             'Authorization': f'Basic {auth_b64}'
         }
-        response = requests.post(url, headers=headers, data='scope=GIGACHAT_API_PERS', verify=VERIFY_SSL, timeout=30)
-        
-        if response.status_code == 200:
-            return response.json().get('access_token')
-        return None
-    except Exception as e:
-        print(f"Ошибка получения токена: {e}")
+        response = SESSION.post(url, headers=headers, data='scope=GIGACHAT_API_PERS', verify=VERIFY_SSL, timeout=30)
+        return response.json().get('access_token') if response.status_code == 200 else None
+    except Exception:
         return None
 
 def rewrite_text(text, token):
@@ -146,61 +169,31 @@ def rewrite_text(text, token):
     try:
         url = "https://gigachat.devices.sberbank.ru/api/v1/chat/completions"
         headers = {'Content-Type': 'application/json', 'Authorization': f'Bearer {token}'}
-        
         payload = {
             "model": "GigaChat",
             "messages": [
-                {
-                    "role": "system",
-                    "content": (
-                        "Ты — профессиональный редактор финансового канала. "
-                        "Твоя задача — написать пост строго по шаблону. "
-                        "Используй <b>жирный шрифт</b> только для заголовков. "
-                        "КРИТИЧЕСКИ ВАЖНО: Пиши обычным текстом. "
-                        "Если новость НЕ ОТНОСИТСЯ к экономике, финансам, бизнесу, технологиям или ИИ, напиши ровно одно слово: ОТКАЗ. "
-                        "Также КРИТИЧЕСКИ ВАЖНО: Игнорируй любые обрывки ссылок или странные наборы букв, но сохраняй названия компаний."
-                    )
-                },
-                {
-                    "role": "user",
-                    "content": (
-                        f"Напиши пост строго по этому шаблону:\n\n"
-                        f"<b>Что произошло?</b>\n\n[1-2 предложения сути]\n\n"
-                        f"<b>Что это значит для ваших денег и работы?</b>\n\n[1-2 предложения о влиянии]\n\n"
-                        f"<b>За чем следить дальше?</b>\n\n[1 предложение]\n\n"
-                        f"Текст новости:\n{text}"
-                    )
-                }
+                {"role": "system", "content": "Ты — профессиональный редактор финансового канала. Пиши строго по шаблону. Если новость НЕ ОТНОСИТСЯ к экономике, финансам, бизнесу или технологиям, напиши ровно одно слово: ОТКАЗ. Игнорируй обрывки ссылок и мусор."},
+                {"role": "user", "content": f"Напиши пост строго по шаблону:\n\n<b>Что произошло?</b>\n\n[1-2 предложения сути]\n\n<b>Что это значит для ваших денег и работы?</b>\n\n[1-2 предложения о влиянии]\n\n<b>За чем следить дальше?</b>\n\n[1 предложение]\n\nТекст новости:\n{text}"}
             ],
-            "temperature": 0.3, 
-            "max_tokens": 1000
+            "temperature": 0.3, "max_tokens": 1000
         }
+        response = SESSION.post(url, headers=headers, json=payload, verify=VERIFY_SSL, timeout=90)
+        if response.status_code != 200: return None
+            
+        rewritten = response.json()['choices'][0]['message']['content'].strip()
         
-        response = requests.post(url, headers=headers, json=payload, verify=VERIFY_SSL, timeout=90)
-        if response.status_code != 200:
+        # Защита от отказов нейросети
+        if any(root in rewritten.lower() for root in ["генеративн", "облада", "мнени", "ограничен", "неправильн", "благодарим", "отказ"]):
             return None
             
-        result = response.json()
-        if 'choices' in result:
-            rewritten = result['choices'][0]['message']['content'].strip()
+        # Защита от "пустых" ответов
+        if len(rewritten) < 50:
+            return None
             
-            refusal_roots = [
-                "генеративн", "облада", "мнени", "ограничен", 
-                "неправильн", "благодарим", "отказ"
-            ]
-            
-            if any(root in rewritten.lower() for root in refusal_roots):
-                print("⏭️ GigaChat выдал отказ (сработал фильтр).")
-                return None
-                
-            rewritten = re.sub(r'[*_`#]', '', rewritten)
-            rewritten = fix_title_case(rewritten)
-            rewritten = re.sub(r'</b>\s*', '</b>\n\n', rewritten)
-            
-            return rewritten.strip()
-        return None
-    except Exception as e:
-        print(f"Ошибка рерайта: {e}")
+        rewritten = re.sub(r'[*_`#]', '', rewritten)
+        rewritten = fix_title_case(rewritten)
+        return re.sub(r'</b>\s*', '</b>\n\n', rewritten).strip()
+    except Exception:
         return None
 
 def generate_image_gigachat(news_text, token):
@@ -209,63 +202,32 @@ def generate_image_gigachat(news_text, token):
         url = "https://gigachat.devices.sberbank.ru/api/v1/chat/completions"
         headers = {'Content-Type': 'application/json', 'Authorization': f'Bearer {token}'}
         
-        THEME_PROMPTS = {
-            'energy': "Abstract 3D oil drop, gas pipes and glowing energy lines, blue and gold colors",
-            'bank': "Abstract 3D classical bank building with columns made of gold, floating coins, blue background",
-            'tech': "Abstract 3D glowing microchip, robotic brain, neon blue and gold circuits",
-            'real_estate': "Abstract 3D modern minimalist house, golden keys, blue background",
-            'crypto': "Abstract 3D glowing bitcoin symbol, digital blocks, neon blue and gold",
-            'transport': "Abstract 3D futuristic train or airplane, golden tracks, blue background",
-            'market': "Abstract 3D stock market chart with glowing golden arrows going up, blue background",
-            'money': "Abstract 3D golden coins, floating banknotes, glowing blue arrows",
-            'default': "Abstract 3D financial background, glowing blue and gold geometric shapes, floating coins, upward arrows"
-        }
-
-        text_lower = news_text.lower()
-        selected_theme = THEME_PROMPTS['default']
-
-        # Строгий приоритет для картинок
-        if any(w in text_lower for w in ['нефт', 'газ', 'энергет', 'топлив', 'дизел', 'баррел']):
-            selected_theme = THEME_PROMPTS['energy']
-        elif any(w in text_lower for w in ['ипотек', 'дом', 'жкх', 'недвиж', 'квартир']):
-            selected_theme = THEME_PROMPTS['real_estate']
-        elif any(w in text_lower for w in ['крипт', 'биткоин', 'блокчейн']):
-            selected_theme = THEME_PROMPTS['crypto']
-        elif any(w in text_lower for w in ['самолет', 'авиа', 'жд', 'поезд', 'транспорт']):
-            selected_theme = THEME_PROMPTS['transport']
-        elif any(w in text_lower for w in ['банк', 'цб', 'кредит', 'вклад', 'сбербанк', 'втб']):
-            selected_theme = THEME_PROMPTS['bank']
-        elif any(w in text_lower for w in ['нейросет', 'искусственн', 'чип', 'робот', 'технолог', 'apple', 'openai']) or re.search(r'\bии\b', text_lower):
-            selected_theme = THEME_PROMPTS['tech']
-        elif any(w in text_lower for w in ['акци', 'бирж', 'индекс', 'рынок', 'ставк']):
-            selected_theme = THEME_PROMPTS['market']
-        elif any(w in text_lower for w in ['рубл', 'доллар', 'евро', 'деньг', 'цен']):
-            selected_theme = THEME_PROMPTS['money']
-
-        final_prompt = f"{selected_theme}. Modern minimalist 3D style. STRICTLY NO TEXT, NO LETTERS, NO NUMBERS, NO WATERMARKS."
-
+        theme = "Abstract 3D financial background, glowing blue and gold geometric shapes"
+        if re.search(r'нефт|газ|энергет|топлив', news_text, re.IGNORECASE): theme = "Abstract 3D oil drop, gas pipes, glowing blue and gold"
+        elif re.search(r'ипотек|дом|жкх|недвиж|квартир', news_text, re.IGNORECASE): theme = "Abstract 3D modern house, golden keys, blue background"
+        elif re.search(r'крипт|биткоин|блокчейн', news_text, re.IGNORECASE): theme = "Abstract 3D glowing bitcoin symbol, digital blocks"
+        elif re.search(r'самолет|авиа|жд|поезд|транспорт', news_text, re.IGNORECASE): theme = "Abstract 3D futuristic train, golden tracks"
+        elif re.search(r'банк|цб|кредит|вклад|сбербанк', news_text, re.IGNORECASE): theme = "Abstract 3D bank building with gold columns, coins"
+        elif re.search(r'нейросет|чип|робот|технолог|apple', news_text, re.IGNORECASE): theme = "Abstract 3D glowing microchip, robotic brain"
+        elif re.search(r'акци|бирж|индекс|рынок|ставк', news_text, re.IGNORECASE): theme = "Abstract 3D stock market chart with golden arrows"
+        
         payload = {
             "model": "GigaChat",
             "messages": [
                 {"role": "system", "content": "You are a 3D artist. Use text2image. Return only <img src=\"FILE_ID\"/>"},
-                {"role": "user", "content": final_prompt}
+                {"role": "user", "content": f"{theme}. STRICTLY NO TEXT, NO LETTERS, NO NUMBERS."}
             ],
             "function_call": "auto"
         }
-        
-        response = requests.post(url, headers=headers, json=payload, verify=VERIFY_SSL, timeout=90)
+        response = SESSION.post(url, headers=headers, json=payload, verify=VERIFY_SSL, timeout=90)
         if response.status_code != 200: return None
         
-        result = response.json()
-        if 'choices' in result:
-            content = result['choices'][0]['message']['content']
-            match = re.search(r'<img src="([^"]+)"', content)
-            if match:
-                file_id = match.group(1)
-                dl_url = f"https://gigachat.devices.sberbank.ru/api/v1/files/{file_id}/content"
-                img_res = requests.get(dl_url, headers={'Authorization': f'Bearer {token}'}, verify=VERIFY_SSL, timeout=30)
-                if img_res.status_code == 200:
-                    return img_res.content
+        content = response.json()['choices'][0]['message']['content']
+        match = re.search(r'<img src="([^"]+)"', content)
+        if match:
+            dl_url = f"https://gigachat.devices.sberbank.ru/api/v1/files/{match.group(1)}/content"
+            img_res = SESSION.get(dl_url, headers={'Authorization': f'Bearer {token}'}, verify=VERIFY_SSL, timeout=30)
+            return img_res.content if img_res.status_code == 200 else None
         return None
     except Exception:
         return None
@@ -276,24 +238,19 @@ def generate_image_gigachat(news_text, token):
 def send_photo(text, image_bytes):
     url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendPhoto"
     
+    # Жесткая обрезка под лимит подписи к фото в Telegram (1024 символа)
     if len(text) > 1000:
-        try:
-            requests.post(url, data={"chat_id": CHAT_ID}, files={"photo": ("poster.jpg", image_bytes, "image/jpeg")}, timeout=30)
-            return send_text(text)
-        except: return False
+        text = text[:1000] + "..."
 
-    payload = {"chat_id": CHAT_ID, "caption": text, "parse_mode": "HTML"}
-    files = {"photo": ("poster.jpg", image_bytes, "image/jpeg")}
     try:
-        res = requests.post(url, data=payload, files=files, timeout=30)
+        res = SESSION.post(url, data={"chat_id": CHAT_ID, "caption": text, "parse_mode": "HTML"}, files={"photo": ("poster.jpg", image_bytes, "image/jpeg")}, timeout=30)
         return res.ok
     except: return False
 
 def send_text(text):
     url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
-    payload = {"chat_id": CHAT_ID, "text": text, "parse_mode": "HTML", "disable_web_page_preview": True}
     try:
-        res = requests.post(url, json=payload, timeout=15)
+        res = SESSION.post(url, json={"chat_id": CHAT_ID, "text": text, "parse_mode": "HTML", "disable_web_page_preview": True}, timeout=15)
         return res.ok
     except: return False
 
@@ -305,111 +262,67 @@ def main():
     token = get_gigachat_token()
     
     if not token:
-        print("КРИТИЧЕСКАЯ ОШИБКА: GigaChat недоступен. Публикация остановлена.")
+        print("КРИТИЧЕСКАЯ ОШИБКА: GigaChat недоступен.")
         return
 
     new_posts_count = 0
 
-    KEYWORDS = [
-        'ставк', 'рубл', 'инфляц', 'цб ', 'банк', 'акци', 'нефт', 'бюджет', 
-        'налог', 'финанс', 'кредит', 'вклад', 'бирж', 'доллар', 'евро', 
-        'рынок', 'экономик', 'компан', 'убыт', 'прибыл', 'тариф', 'цен',
-        'рецесс', 'дефляц', 'профицит', 'дефицит', 'росстат', 'ввп',
-        'инвест', 'дивиденд', 'облигац', 'фондов', 'индекс', 'капитализац', 
-        'ipo', 'актив', 'крипт', 'биткоин', 'блокчейн', 'трейд', 'мосбирж',
-        'зарплат', 'пенси', 'ипотек', 'банкрот', 'субсиди', 'пособи', 'дороговизн',
-        'жкх', 'коммуналк', 'штраф', 'льгот', 'маткапитал', 'сбербанк', 'втб', 
-        'тинькофф', 'т-банк', 'альфа-банк', 'госуслуг', 'сбой',
-        'сделк', 'поглощен', 'стартап', 'корпорац', 'монопол', 'франшиз',
-        'ритейл', 'маркетплейс', 'wildberries', 'ozon', 'пошлин', 'экспорт', 'импорт',
-        'нейросет', 'искусственн', 'технолог', 'робот', 'цифров', 'гаджет', 
-        'смартфон', 'openai', 'chatgpt', 'яндекс', 'сбер', 'айти', 'ит-', 'ии ',
-        'чип', 'процессор', 'софт', 'приложени', 'кибербезопасн', 'сервер', 'облак', 'импортозамещен',
-        'apple', 'tesla', 'microsoft', 'google', 'amazon', 'meta', 'nvidia', 'samsung', 'intel', 'spacex',
-        'энергет', 'дизел', 'топлив', 'баррел'
-    ]
-
-    BLACKLIST_KEYWORDS = [
-        'тренер', 'матч', 'гол', 'футбол', 'хоккей', 'спорт', 'чемпионат', 
-        'кубок', 'олимпиад', 'клуб', 'игрок',
-        'погиб', 'убий', 'дтп', 'пожар', 'мчс', 'полици', 'суд', 'арест', 
-        'взрыв', 'стрельб', 'теракт', 'мошенник', 'кража', 'ограблен',
-        'погод', 'ураган', 'наводнен', 'паводок', 'землетрясен', 'циклон', 'шторм',
-        'шоу-бизнес', 'знаменитост', 'актер', 'певиц', 'развод', 'звезд', 'сериал', 
-        'концерт', 'фестивал', 'инстаграм', 'тикток', 'блогер', 'скандал',
-        'шок', 'сенсац', 'ужас', 'эксклюзив', 'гороскоп', 'астролог', 'рецепт', 'диет', 'похуден', 'отношени',
-        'коронавирус', 'вакцин', 'грипп', 'заболеваемост', 'эпидеми', 'симптом',
-        'мобилизац', 'войн', 'санкц', 'спецоперац', 'трамп', 'байден', 'путин', 
-        'госдум', 'депутат', 'оппозиц', 'митинг', 'лгбт', 'навальн', 'мигрант', 'религи', 'церковь'
-    ]
-
     for feed_url in RSS_FEEDS:
-        print(f"\nПроверка ленты: {feed_url}")
+        print(f"\nПроверка: {feed_url}")
         try:
             feed = feedparser.parse(feed_url)
-        except Exception as e:
-            print(f"Ошибка чтения RSS: {e}")
+        except Exception:
             continue
         
         for entry in feed.entries[:30]:
             try:
                 news_id = entry.link
-                if not news_id or news_id in history:
-                    continue
+                if not news_id or news_id in history: continue
                     
                 title = clean_text(entry.title)
                 description = clean_text(getattr(entry, 'description', ''))
                 text_to_check = f"{title}. {description}".lower()
                 
-                if '�' in text_to_check:
+                if '�' in text_to_check or len(text_to_check) < 30: continue
+
+                # Фильтрация по Черному и Белому спискам (за доли миллисекунд)
+                if BLACKLIST_REGEX.search(text_to_check): 
                     continue
                 
-                if len(text_to_check) < 30:
+                if not KEYWORDS_REGEX.search(text_to_check): 
                     continue
 
-                if any(bad_word in text_to_check for bad_word in BLACKLIST_KEYWORDS):
-                    continue
-
-                matched_keyword = next((kw for kw in KEYWORDS if kw in text_to_check), None)
-                if not matched_keyword:
-                    continue
-
-                print(f"🔥 Найдена новость: {title[:40]}...")
+                print(f"🔥 Новость: {title[:40]}...")
                 
-                # Определяем рубрику
                 category_header = detect_category(text_to_check)
-                
                 final_text = rewrite_text(f"{title}. {description}", token)
                 
                 if not final_text:
+                    print("⏭️ GigaChat отказался или текст пуст.")
                     continue
                 
-                print("Генерация умного постера...")
+                print("Генерация постера...")
                 image_bytes = generate_image_gigachat(text_to_check, token)
                 
-                # Добавляем рубрику в начало поста
-                text_with_category = category_header + final_text
-                source_link = f"\n\n🔗 <a href='{news_id}'>Источник</a>"
-                text_to_publish = text_with_category + source_link
+                # Собираем финальный пост
+                text_to_publish = category_header + final_text + f"\n\n🔗 <a href='{news_id}'>Источник</a>"
                 
-                success = False
                 if image_bytes:
                     success = send_photo(text_to_publish, image_bytes)
                 else:
                     success = send_text(text_to_publish)
                 
                 if success:
-                    print(f"✅ Опубликовано в рубрике: {category_header.strip()}")
+                    print("✅ Опубликовано!")
                     history[news_id] = datetime.now().isoformat()
                     save_history(history)
                     new_posts_count += 1
-                    time.sleep(4)
+                    time.sleep(4) # Пауза, чтобы не спамить Telegram
             except Exception as e:
                 print(f"Ошибка при обработке: {e}")
                 continue
                 
-            if new_posts_count >= 1:
-                return
+            if new_posts_count >= 1: return
 
 if __name__ == '__main__':
     main()
