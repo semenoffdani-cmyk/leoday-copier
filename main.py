@@ -85,15 +85,18 @@ SESSION.mount('https://', HTTPAdapter(max_retries=retries))
 # 🧹 ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ
 # =====================================================================
 def remove_garbage(text):
-    # Список английских слов, которые мы ОСТАВЛЯЕМ (бренды и термины)
-    keep_words = {'apple', 'tesla', 'microsoft', 'google', 'amazon', 'meta', 'nvidia', 'samsung', 'intel', 'spacex', 'openai', 'chatgpt', 'iphone', 'ipad', 'macbook'}
+    known_brands = {'apple', 'tesla', 'microsoft', 'google', 'amazon', 'meta', 'nvidia', 'samsung', 'intel', 'spacex', 'openai', 'chatgpt'}
+    def replace_word(match):
+        word = match.group(0)
+        if word.lower() in known_brands: return word
+        return ''
     
-    # Ищем все английские слова длиной от 3 букв
-    words = re.findall(r'\b[a-zA-Z]{3,}\b', text)
-    for word in words:
-        if word.lower() not in keep_words:
-            # Если слова нет в белом списке — удаляем его
-            text = re.sub(r'\b' + re.escape(word) + r'\b', '', text)
+    # 1. Удаляем все длинные английские слова, кроме брендов
+    text = re.sub(r'\b[a-zA-Z]{4,}\b', replace_word, text)
+    
+    # 2. 🚨 ХАРДКОРНАЯ ЗАЧИСТКА (вырезаем конкретные известные баги)
+    text = re.sub(r'(?i)amburg\w*', '', text) # Удаляет amburg, amburgbank, amburgers и т.д.
+    
     return text
 
 def clean_text(text):
@@ -192,7 +195,7 @@ def cosine_similarity(vec1, vec2):
     return dot_product / (norm1 * norm2)
 
 # =====================================================================
-# 🤖 GIGACHAT: РЕРАЙТ ТЕКСТА (СЖАТИЕ ОТСТУПОВ)
+# 🤖 GIGACHAT: РЕРАЙТ ТЕКСТА
 # =====================================================================
 def rewrite_text(text, token):
     if not token or not text: return None
@@ -235,11 +238,8 @@ def rewrite_text(text, token):
         rewritten = re.sub(r'(?i)что это значит\?', '<b>Что это значит?</b>', rewritten)
         rewritten = re.sub(r'(?i)что дальше\?', '<b>Что дальше?</b>', rewritten)
         
-        # 4. Форматируем отступы
+        # 4. Ставим двойной перенос после закрывающего тега </b>
         rewritten = re.sub(r'</b>\s*', '</b>\n\n', rewritten)
-        
-        # 5. 🚨 УБИРАЕМ ОГРОМНЫЕ ДЫРЫ (если переносов больше 2, оставляем только 2)
-        rewritten = re.sub(r'\n{3,}', '\n\n', rewritten)
         
         return rewritten.strip()
     except Exception: return None
