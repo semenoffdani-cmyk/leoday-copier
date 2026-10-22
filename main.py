@@ -66,6 +66,37 @@ def save_history(history):
         print(f"Ошибка сохранения истории: {e}")
 
 # =====================================================================
+# 🪄 МАГИЯ ИСПРАВЛЕНИЯ РЕГИСТРА (Убирает Заглавные Буквы В Каждом Слове)
+# =====================================================================
+def fix_title_case(text):
+    lines = text.split('\n')
+    fixed_lines = []
+    
+    for line in lines:
+        # Если это заголовок с жирным шрифтом
+        if line.startswith('<b>') and '</b>' in line:
+            match = re.search(r'<b>(.*?)</b>(.*)', line)
+            if match:
+                heading = match.group(1).lower().capitalize()
+                body = match.group(2).strip()
+                # Если тело поста написано Заглавными Буквами, исправляем
+                if body and sum(1 for w in body.split() if w[:1].isupper()) > len(body.split()) * 0.5:
+                    body = body.lower()
+                    if body:
+                        body = body[0].upper() + body[1:]
+                fixed_lines.append(f"<b>{heading}</b>\n{body}")
+        else:
+            # Если обычный текст написан с Заглавных Букв
+            words = line.split()
+            if len(words) > 3 and sum(1 for w in words if w[:1].isupper()) > len(words) * 0.6:
+                line = line.lower()
+                if line:
+                    line = line[0].upper() + line[1:]
+            fixed_lines.append(line)
+            
+    return '\n'.join(fixed_lines)
+
+# =====================================================================
 # 🤖 GIGACHAT
 # =====================================================================
 def get_gigachat_token():
@@ -97,7 +128,6 @@ def rewrite_text(text, token):
         url = "https://gigachat.devices.sberbank.ru/api/v1/chat/completions"
         headers = {'Content-Type': 'application/json', 'Authorization': f'Bearer {token}'}
         
-        # Разделяем на System (инструкция) и User (сама новость)
         payload = {
             "model": "GigaChat",
             "messages": [
@@ -106,8 +136,9 @@ def rewrite_text(text, token):
                     "content": (
                         "Ты — профессиональный редактор финансового канала. "
                         "Твоя задача — написать пост строго по шаблону. "
-                        "Используй <b>жирный шрифт</b> для заголовков (HTML разрешен). "
-                        "Никаких звездочек, решеток и маркдауна. Пиши грамотно, с заглавных букв."
+                        "Используй <b>жирный шрифт</b> только для трех заголовков (в шаблоне они уже есть). "
+                        "КРИТИЧЕСКИ ВАЖНО: Пиши обычным текстом, как в газете. НЕ ПИШИ КАЖДОЕ СЛОВО С БОЛЬШОЙ БУКВЫ. "
+                        "Только первая буква предложения должна быть заглавной. Никаких звездочек и маркдауна."
                     )
                 },
                 {
@@ -121,8 +152,8 @@ def rewrite_text(text, token):
                     )
                 }
             ],
-            "temperature": 0.3, 
-            "max_tokens": 1000  # Увеличили лимит, чтобы текст не обрывался!
+            "temperature": 0.2, 
+            "max_tokens": 1000
         }
         
         response = requests.post(url, headers=headers, json=payload, verify=False, timeout=90)
@@ -133,12 +164,12 @@ def rewrite_text(text, token):
         if 'choices' in result:
             rewritten = result['choices'][0]['message']['content'].strip()
             
-            # Очищаем только от мусора, ОСТАВЛЯЕМ <b> и </b>
+            # Убираем мусорные символы
             rewritten = re.sub(r'[*_`#]', '', rewritten)
-            # Убираем лишние пробелы перед тегами
-            rewritten = re.sub(r'\s+<b>', '\n\n<b>', rewritten) 
             
-            # Проверка на обрыв текста (если не заканчивается на точку, воскл. или вопр. знак)
+            # 🪄 ПРИМЕНЯЕМ МАГИЮ (Исправляем регистр)
+            rewritten = fix_title_case(rewritten)
+            
             if not re.search(r'[.!?]$', rewritten):
                 rewritten += "..." 
                 
@@ -211,8 +242,6 @@ def send_photo(text, image_bytes):
     files = {"photo": ("poster.jpg", image_bytes, "image/jpeg")}
     try:
         res = requests.post(url, data=payload, files=files, timeout=30)
-        if not res.ok:
-            print(f"Ошибка Telegram: {res.text}")
         return res.ok
     except: return False
 
@@ -221,8 +250,6 @@ def send_text(text):
     payload = {"chat_id": CHAT_ID, "text": text, "parse_mode": "HTML", "disable_web_page_preview": True}
     try:
         res = requests.post(url, json=payload, timeout=15)
-        if not res.ok:
-            print(f"Ошибка Telegram: {res.text}")
         return res.ok
     except: return False
 
