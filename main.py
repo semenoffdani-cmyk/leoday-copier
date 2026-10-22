@@ -209,47 +209,20 @@ def cosine_similarity(vec1, vec2):
 # =====================================================================
 # 🤖 GIGACHAT: РЕРАЙТ ТЕКСТА (С ОЧИСТКОЙ ОТ ПОВТОРОВ)
 # =====================================================================
-def rewrite_text(text, token, source_url):
-    if not token or not text: return None
-    try:
-        url = "https://gigachat.devices.sberbank.ru/api/v1/chat/completions"
-        headers = {'Content-Type': 'application/json', 'Authorization': f'Bearer {token}'}
-        
-        payload = {
-            "model": "GigaChat",
-            "messages": [
-                {"role": "system", "content": (
-                    "Ты — профессиональный редактор финансового канала. "
-                    "Твоя задача — написать пост строго по шаблону. "
-                    "КРИТИЧЕСКИ ВАЖНО: Если новость написана сложным канцелярским языком (например, пресс-релизы ЦБ), объясни её суть простыми словами. "
-                    "Если новость НЕ ОТНОСИТСЯ к экономике, финансам, бизнесу или технологиям, напиши ровно одно слово: ОТКАЗ."
-                )},
-                {"role": "user", "content": (
-                    f"Напиши ровно 3 абзаца текста, разделенных переносом строки. Без тегов, без жирного шрифта, без отступов.\n"
-                    f"1. Суть новости (2-3 предложения, не меньше 100 символов).\n"
-                    f"2. Что это значит для кошелька или работы (1-2 предложения).\n"
-                    f"3. Что дальше (1 предложение).\n\n"
-                    f"Текст новости:\n{text}"
-                )}
-            ],
-            "temperature": 0.3, "max_tokens": 1000
-        }
-        
-        response = SESSION.post(url, headers=headers, json=payload, verify=VERIFY_SSL, timeout=90)
-        if response.status_code != 200: 
-            print(f"DEBUG: Ошибка рерайта GigaChat: {response.status_code}")
-            return None
-            
-        raw_rewritten = response.json()['choices'][0]['message']['content'].strip()
-        
-        save_raw_response(raw_rewritten, source_url)
-        
-        if any(root in raw_rewritten.lower() for root in ["генеративн", "облада", "мнени", "ограничен", "неправильн", "благодарим", "не могу"]): 
-            print("DEBUG: GigaChat выдал ОТКАЗ.")
-            return None
-        if len(raw_rewritten) < 50: 
-            print("DEBUG: GigaChat выдал слишком короткий текст.")
-            return None
+      - name: Save history and embeddings
+        run: |
+          git config --local user.email "action@github.com"
+          git config --local user.name "GitHub Action"
+          
+          if [ -f history.json ]; then git add history.json; fi
+          if [ -f embeddings.json ]; then git add embeddings.json; fi
+          
+          if ! git diff --staged --quiet; then
+            git commit -m "Update history and embeddings [skip ci]"
+            git push
+          else
+            echo "Нет изменений для сохранения."
+          fi
         
         paragraphs = [p.strip() for p in raw_rewritten.split('\n') if p.strip()]
         
