@@ -33,10 +33,216 @@ RSS_FEEDS = [
     'https://ria.ru/export/rss2/archive/index.xml'
 ]
 
-# ... (функции clean_text, load_history, save_history, fix_title_case, get_gigachat_token, rewrite_text, generate_image_gigachat, generate_image_fallback, send_photo, send_text остаются БЕЗ ИЗМЕНЕНИЙ) ...
+# =====================================================================
+# 🧹 УТИЛИТЫ
+# =====================================================================
+def clean_text(text):
+    if not text:
+        return ""
+    text = re.sub(r'<[^>]+>', '', text)
+    text = re.sub(r'\s+', ' ', text)
+    text = re.sub(r'https?://\S+', '', text)
+    text = html.escape(text)
+    return text.strip()
+
+def load_history():
+    if os.path.exists(HISTORY_FILE):
+        try:
+            with open(HISTORY_FILE, 'r', encoding='utf-8') as f:
+                return json.load(f)
+        except Exception:
+            return {}
+    return {}
+
+def save_history(history):
+    try:
+        if len(history) > 2000:
+            keys_to_remove = list(history.keys())[:-2000]
+            for k in keys_to_remove:
+                del history[k]
+        with open(HISTORY_FILE, 'w', encoding='utf-8') as f:
+            json.dump(history, f, ensure_ascii=False, indent=2)
+    except Exception as e:
+        print(f"Ошибка сохранения истории: {e}")
+
+def fix_title_case(text):
+    lines = text.split('\n')
+    fixed_lines = []
+    for line in lines:
+        if line.startswith('<b>') and '</b>' in line:
+            match = re.search(r'<b>(.*?)</b>(.*)', line)
+            if match:
+                heading = match.group(1).lower().capitalize()
+                body = match.group(2).strip()
+                if body and sum(1 for w in body.split() if w[:1].isupper()) > len(body.split()) * 0.5:
+                    body = body.lower()
+                    if body:
+                        body = body[0].upper() + body[1:]
+                fixed_lines.append(f"<b>{heading}</b>\n{body}")
+        else:
+            words = line.split()
+            if len(words) > 3 and sum(1 for w in words if w[:1].isupper()) > len(words) * 0.6:
+                line = line.lower()
+                if line:
+                    line = line[0].upper() + line[1:]
+            fixed_lines.append(line)
+    return '\n'.join(fixed_lines)
 
 # =====================================================================
-# 🚀 ОБНОВЛЕННЫЙ MAIN
+# 🤖 GIGACHAT
+# =====================================================================
+def get_gigachat_token():
+    if not GIGA_CLIENT_ID or not GIGA_CLIENT_SECRET:
+        return None
+    try:
+        auth_str = f"{GIGA_CLIENT_ID.strip()}:{GIGA_CLIENT_SECRET.strip()}"
+        auth_b64 = base64.b64encode(auth_str.encode()).decode()
+        
+        url = "https://ngw.devices.sberbank.ru:9443/api/v2/oauth"
+        headers = {
+            'Content-Type': 'application/x-www-form-urlencoded',
+            'Accept': 'application/json',
+            'RqUID': str(uuid.uuid4()),
+            'Authorization': f'Basic {auth_b64}'
+        }
+        response = requests.post(url, headers=headers, data='scope=GIGACHAT_API_PERS', verify=False, timeout=30)
+        
+        if response.status_code == 200:
+            return response.json().get('access_token')
+        return None
+    except Exception:
+        return None
+
+def rewrite_text(text, token):
+    if not token or not text:
+        return text
+    try:
+        url = "https://gigachat.devices.sberbank.ru/api/v1/chat/completions"
+        headers = {'Content-Type': 'application/json', 'Authorization': f'Bearer {token}'}
+        
+        payload = {
+            "model": "GigaChat",
+            "messages": [
+                {
+                    "role": "system",
+                    "content": (
+                        "Ты — профессиональный редактор финансового канала. "
+                        "Твоя задача — написать пост строго по шаблону. "
+                        "Используй <b>жирный шрифт</b> только для трех заголовков (в шаблоне они уже есть). "
+                        "КРИТИЧЕСКИ ВАЖНО: Пиши обычным текстом. НЕ ПИШИ КАЖДОЕ СЛОВО С БОЛЬШОЙ БУКВЫ. "
+                        "Только первая буква предложения должна быть заглавной. Никаких звездочек и маркдауна."
+                    )
+                },
+                {
+                    "role": "user",
+                    "content": (
+                        f"Напиши пост строго по этому шаблону (не отклоняйся от него):\n\n"
+                        f"<b>Что произошло?</b>\n[1-2 предложения сути]\n\n"
+                        f"<b>Что это меняет для обычного человека?</b>\n[1-2 предложения о влиянии на кошелек]\n\n"
+                        f"<b>За чем следить дальше?</b>\n[1 предложение о том, на какой показатель смотреть]\n\n"
+                        f"Текст новости:\n{text}"
+                    )
+                }
+            ],
+            "temperature": 0.2, 
+            "max_tokens": 1000
+        }
+        
+        response = requests.post(url, headers=headers, json=payload, verify=False, timeout=90)
+        if response.status_code != 200:
+            return text
+            
+        result = response.json()
+        if 'choices' in result:
+            rewritten = result['choices'][0]['message']['content'].strip()
+            rewritten = re.sub(r'[*_`#]', '', rewritten)
+            rewritten = fix_title_case(rewritten)
+            
+            if not re.search(r'[.!?]$', rewritten):
+                rewritten += "..." 
+                
+            return rewritten.strip()
+        return text
+    except Exception as e:
+        print(f"Ошибка рерайта: {e}")
+        return text
+
+# =====================================================================
+# 🎨 ГЕНЕРАЦИЯ КАРТИНОК (БЕЗ ТЕКСТА)
+# =====================================================================
+def generate_image_gigachat(prompt, token):
+    if not token: return None
+    try:
+        url = "https://gigachat.devices.sberbank.ru/api/v1/chat/completions"
+        headers = {'Content-Type': 'application/json', 'Authorization': f'Bearer {token}'}
+        
+        payload = {
+            "model": "GigaChat",
+            "messages": [
+                {"role": "system", "content": "You are a 3D artist. Use text2image. Return only <img src=\"FILE_ID\"/>"},
+                {"role": "user", "content": f"Abstract 3D financial illustration. Theme: {prompt}. Blue and gold colors, geometric shapes, glowing lines. STRICTLY NO TEXT, NO LETTERS, NO NUMBERS, NO TYPOGRAPHY, NO WATERMARKS. Clean minimalist background."}
+            ],
+            "function_call": "auto"
+        }
+        
+        response = requests.post(url, headers=headers, json=payload, verify=False, timeout=90)
+        if response.status_code != 200: return None
+        
+        result = response.json()
+        if 'choices' in result:
+            content = result['choices'][0]['message']['content']
+            match = re.search(r'<img src="([^"]+)"', content)
+            if match:
+                file_id = match.group(1)
+                dl_url = f"https://gigachat.devices.sberbank.ru/api/v1/files/{file_id}/content"
+                img_res = requests.get(dl_url, headers={'Authorization': f'Bearer {token}'}, verify=False, timeout=30)
+                if img_res.status_code == 200:
+                    return img_res.content
+        return None
+    except Exception:
+        return None
+
+def generate_image_fallback(prompt):
+    try:
+        safe_prompt = urllib.parse.quote(f"abstract 3d financial background, {prompt}, blue and gold, no text, no letters, no numbers, no typography, clean minimalist")
+        url = f"https://image.pollinations.ai/prompt/{safe_prompt}?width=1024&height=1024&nologo=true"
+        headers = {'User-Agent': 'Mozilla/5.0'}
+        response = requests.get(url, headers=headers, timeout=40)
+        if response.status_code == 200:
+            return response.content
+        return None
+    except Exception:
+        return None
+
+# =====================================================================
+# ✈️ TELEGRAM
+# =====================================================================
+def send_photo(text, image_bytes):
+    url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendPhoto"
+    
+    if len(text) > 1000:
+        try:
+            requests.post(url, data={"chat_id": CHAT_ID}, files={"photo": ("poster.jpg", image_bytes, "image/jpeg")}, timeout=30)
+            return send_text(text)
+        except: return False
+
+    payload = {"chat_id": CHAT_ID, "caption": text, "parse_mode": "HTML"}
+    files = {"photo": ("poster.jpg", image_bytes, "image/jpeg")}
+    try:
+        res = requests.post(url, data=payload, files=files, timeout=30)
+        return res.ok
+    except: return False
+
+def send_text(text):
+    url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
+    payload = {"chat_id": CHAT_ID, "text": text, "parse_mode": "HTML", "disable_web_page_preview": True}
+    try:
+        res = requests.post(url, json=payload, timeout=15)
+        return res.ok
+    except: return False
+
+# =====================================================================
+# 🚀 MAIN
 # =====================================================================
 def main():
     history = load_history()
@@ -65,7 +271,6 @@ def main():
             print(f"Ошибка чтения RSS: {e}")
             continue
         
-        # Увеличили лимит до 30 новостей, чтобы фильтру было из чего выбирать
         for entry in feed.entries[:30]:
             try:
                 news_id = entry.link
@@ -77,13 +282,10 @@ def main():
                 text_to_check = f"{title}. {description}".lower()
                 
                 if len(text_to_check) < 30:
-                    print(f"⏭️ Пропуск (слишком короткая): {title[:30]}...")
                     continue
 
-                # Проверка на ключевые слова
                 matched_keyword = next((kw for kw in FINANCIAL_KEYWORDS if kw in text_to_check), None)
                 if not matched_keyword:
-                    print(f"⏭️ Пропуск (не по теме): {title[:40]}...")
                     continue
 
                 print(f"🔥 Найдена новость: {title[:40]}... (по слову '{matched_keyword}')")
