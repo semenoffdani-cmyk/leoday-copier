@@ -11,6 +11,7 @@ import html
 import random
 from datetime import datetime
 
+# Отключаем предупреждения на случай, если сертификат не подгрузится
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 # =====================================================================
@@ -25,11 +26,15 @@ if not BOT_TOKEN or not CHAT_ID:
     print("КРИТИЧЕСКАЯ ОШИБКА: Не заданы BOT_TOKEN или TARGET_CHANNEL")
     exit(1)
 
+# Проверяем наличие сертификата для безопасных запросов
 CERT_PATH = 'russiantrustedca.pem'
 VERIFY_SSL = CERT_PATH if os.path.exists(CERT_PATH) else False
 
 HISTORY_FILE = 'history.json'
 
+# =====================================================================
+# 📡 ИСТОЧНИКИ (RSS ЛЕНТЫ)
+# =====================================================================
 RSS_FEEDS = [
     'https://rssexport.rbc.ru/rbcnews/news/30/full.rss',
     'https://www.cbr.ru/rss/RssNews',
@@ -45,6 +50,7 @@ def clean_text(text):
     text = re.sub(r'<[^>]+>', '', text)
     text = re.sub(r'\s+', ' ', text)
     text = re.sub(r'https?://\S+', '', text)
+    # Английские слова больше не удаляются, чтобы сохранять названия компаний
     text = html.escape(text)
     return text.strip()
 
@@ -163,19 +169,21 @@ def rewrite_text(text, token):
         if 'choices' in result:
             rewritten = result['choices'][0]['message']['content'].strip()
             
-            # 🚨 ЗАЩИТА ОТ ОТКАЗОВ GIGACHAT
-            refusal_markers = [
-                "не обладает собственным мнением",
-                "временно ограничены",
-                "сгенерирован нейросетевой моделью",
-                "во избежание неправильного толкования",
-                "Благодарим за понимание",
-                "ОТКАЗ"
+            # 🚨 УЛУЧШЕННАЯ ЗАЩИТА ОТ ОТКАЗОВ (Ищем корни слов)
+            refusal_roots = [
+                "генеративн", 
+                "облада", 
+                "мнени", 
+                "ограничен", 
+                "неправильн", 
+                "благодарим", 
+                "отказ"
             ]
             
-            # Если нейросеть выдала отказ или сработал фильтр — пропускаем новость
-            if any(marker.lower() in rewritten.lower() for marker in refusal_markers):
-                print("⏭️ GigaChat выдал отказ (сработал фильтр безопасности или тема не подходит).")
+            rewritten_lower = rewritten.lower()
+            
+            if any(root in rewritten_lower for root in refusal_roots):
+                print("⏭️ GigaChat выдал отказ (сработал фильтр безопасности).")
                 return None
                 
             rewritten = re.sub(r'[*_`#]', '', rewritten)
@@ -273,7 +281,7 @@ def main():
         'тренер', 'матч', 'гол', 'футбол', 'хоккей', 'спорт', 'чемпионат', 
         'кубок', 'олимпиад', 'клуб', 'игрок', 'погиб', 'убий', 'дтп', 
         'пожар', 'мчс', 'полици', 'суд', 'арест', 'мобилизац', 'войн',
-        'санкц', 'спецоперац', 'трамп', 'байден', 'путин' # Добавили чувствительные темы
+        'санкц', 'спецоперац', 'трамп', 'байден', 'путин'
     ]
 
     for feed_url in RSS_FEEDS:
@@ -300,12 +308,10 @@ def main():
                 if len(text_to_check) < 30:
                     continue
 
-                # 1. Проверка на черный список (спорт, криминал, санкции)
                 if any(bad_word in text_to_check for bad_word in BLACKLIST_KEYWORDS):
                     print(f"⏭️ Пропуск (черный список): {title[:40]}...")
                     continue
 
-                # 2. Проверка на наличие ключевых слов
                 matched_keyword = next((kw for kw in KEYWORDS if kw in text_to_check), None)
                 if not matched_keyword:
                     continue
