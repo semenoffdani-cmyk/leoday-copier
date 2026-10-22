@@ -85,16 +85,16 @@ SESSION.mount('https://', HTTPAdapter(max_retries=retries))
 # 🧹 ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ
 # =====================================================================
 def remove_garbage(text):
-    """Удаляет случайные английские обрывки, сохраняя только известные бренды."""
-    known_brands = {'apple', 'tesla', 'microsoft', 'google', 'amazon', 'meta', 'nvidia', 'samsung', 'intel', 'spacex', 'openai', 'chatgpt'}
+    # Список английских слов, которые мы ОСТАВЛЯЕМ (бренды и термины)
+    keep_words = {'apple', 'tesla', 'microsoft', 'google', 'amazon', 'meta', 'nvidia', 'samsung', 'intel', 'spacex', 'openai', 'chatgpt', 'iphone', 'ipad', 'macbook'}
     
-    def replace_word(match):
-        word = match.group(0)
-        if word.lower() in known_brands: return word
-        return ''
-    
-    # Улучшенная регулярка: ищет английские слова, даже если они слиплись с русскими
-    return re.sub(r'(?<![a-zA-Z])[a-zA-Z]{4,}(?![a-zA-Z])', replace_word, text)
+    # Ищем все английские слова длиной от 3 букв
+    words = re.findall(r'\b[a-zA-Z]{3,}\b', text)
+    for word in words:
+        if word.lower() not in keep_words:
+            # Если слова нет в белом списке — удаляем его
+            text = re.sub(r'\b' + re.escape(word) + r'\b', '', text)
+    return text
 
 def clean_text(text):
     if not text: return ""
@@ -144,22 +144,17 @@ def fix_title_case(text):
     return '\n'.join(fixed_lines)
 
 # =====================================================================
-# 🏷️ УМНАЯ СИСТЕМА РУБРИК (ИСПРАВЛЕН ПРИОРИТЕТ)
+# 🏷️ УМНАЯ СИСТЕМА РУБРИК
 # =====================================================================
 def detect_category(text):
-    # 1. Технологии и бренды (наивысший приоритет для IT-новостей)
-    if re.search(r'нейросет|искусственн|чип|робот|технолог|apple|openai|смартфон|гаджет|ит-|айти|кибербезопасн|\bии\b|софт|приложени|iphone|google|microsoft|tesla', text, re.IGNORECASE):
-        return "🤖 <b>ТЕХНОЛОГИИ И ИИ</b>\n\n"
-    # 2. Личные деньги
-    elif re.search(r'вклад|кредит|ипотек|зарплат|пенси|жкх|рубл|доллар|евро|сбербанк|втб|тинькофф|банк|страхов|маткапитал', text, re.IGNORECASE):
-        return "💸 <b>ЛИЧНЫЕ ДЕНЬГИ</b>\n\n"
-    # 3. Бизнес и промышленность
-    elif re.search(r'промышленн|завод|станкостроен|производств|фабрик|сельхоз|агро|туризм|отел|ритейл|маркетплейс|бизнес|компан|предпринимат', text, re.IGNORECASE):
+    if re.search(r'промышленн|завод|станкостроен|производств|фабрик|сельхоз|агро|туризм|отел|ритейл|маркетплейс|бизнес|компан|предпринимат', text, re.IGNORECASE):
         return "🏭 <b>БИЗНЕС И ПРОМЫШЛЕННОСТЬ</b>\n\n"
-    # 4. Энергетика
     elif re.search(r'нефт|газ|энергет|топлив|дизел|бензин|баррел|уголь|опек', text, re.IGNORECASE):
         return "🛢️ <b>ЭНЕРГЕТИКА И СЫРЬЕ</b>\n\n"
-    
+    elif re.search(r'вклад|кредит|ипотек|зарплат|пенси|жкх|рубл|доллар|евро|сбербанк|втб|тинькофф|банк|страхов|маткапитал', text, re.IGNORECASE):
+        return "💸 <b>ЛИЧНЫЕ ДЕНЬГИ</b>\n\n"
+    elif re.search(r'нейросет|искусственн|чип|робот|технолог|apple|openai|смартфон|гаджет|ит-|айти|кибербезопасн|\bии\b|софт|приложени', text, re.IGNORECASE):
+        return "🤖 <b>ТЕХНОЛОГИИ И ИИ</b>\n\n"
     return "📊 <b>ЭКОНОМИКА</b>\n\n"
 
 # =====================================================================
@@ -197,7 +192,7 @@ def cosine_similarity(vec1, vec2):
     return dot_product / (norm1 * norm2)
 
 # =====================================================================
-# 🤖 GIGACHAT: РЕРАЙТ ТЕКСТА (ПРИНУДИТЕЛЬНОЕ УДАЛЕНИЕ ЛИШНЕГО)
+# 🤖 GIGACHAT: РЕРАЙТ ТЕКСТА (СЖАТИЕ ОТСТУПОВ)
 # =====================================================================
 def rewrite_text(text, token):
     if not token or not text: return None
@@ -214,8 +209,8 @@ def rewrite_text(text, token):
                     "Если новость НЕ ОТНОСИТСЯ к экономике, финансам, бизнесу или технологиям, напиши ровно одно слово: ОТКАЗ."
                 )},
                 {"role": "user", "content": (
-                    f"Напиши пост строго по этому шаблону (НЕ ПИШИ заголовок 'Что произошло?'):\n\n"
-                    f"[1-2 предложения СУТИ новости]\n\n"
+                    f"Напиши пост строго по этому шаблону (не добавляй ничего лишнего):\n\n"
+                    f"[1-2 предложения СУТИ новости, БЕЗ заголовков]\n\n"
                     f"<b>Что это значит?</b>\n\n[1-2 предложения о влиянии на кошелек или работу]\n\n"
                     f"<b>Что дальше?</b>\n\n[1 предложение о том, на какой показатель смотреть]\n\n"
                     f"Текст новости:\n{text}"
@@ -230,17 +225,23 @@ def rewrite_text(text, token):
         if any(root in rewritten.lower() for root in ["генеративн", "облада", "мнени", "ограничен", "неправильн", "благодарим", "отказ"]): return None
         if len(rewritten) < 50: return None
         
+        # 1. Очищаем от мусорных символов
         rewritten = re.sub(r'[*_`#]', '', rewritten)
         
-        # 🚨 ПРИНУДИТЕЛЬНОЕ УДАЛЕНИЕ ЗАГОЛОВКА "Что произошло?"
-        rewritten = re.sub(r'(?i)<b>что произошло\?</b>\s*', '', rewritten)
-        rewritten = re.sub(r'(?i)что произошло\?\s*', '', rewritten)
+        # 2. Исправляем регистр
+        rewritten = fix_title_case(rewritten)
         
-        # Жесткая фиксация оставшихся заголовков
-        rewritten = re.sub(r'(Что это значит\?|Что дальше\?)', r'<b>\1</b>', rewritten)
+        # 3. ЖЕСТКАЯ ЗАМЕНА ЗАГОЛОВКОВ
+        rewritten = re.sub(r'(?i)что это значит\?', '<b>Что это значит?</b>', rewritten)
+        rewritten = re.sub(r'(?i)что дальше\?', '<b>Что дальше?</b>', rewritten)
+        
+        # 4. Форматируем отступы
         rewritten = re.sub(r'</b>\s*', '</b>\n\n', rewritten)
         
-        return fix_title_case(rewritten).strip()
+        # 5. 🚨 УБИРАЕМ ОГРОМНЫЕ ДЫРЫ (если переносов больше 2, оставляем только 2)
+        rewritten = re.sub(r'\n{3,}', '\n\n', rewritten)
+        
+        return rewritten.strip()
     except Exception: return None
 
 # =====================================================================
