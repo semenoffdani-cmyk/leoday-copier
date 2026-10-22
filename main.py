@@ -9,6 +9,7 @@ import urllib3
 import time
 import html
 import urllib.parse
+import random
 from datetime import datetime
 
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
@@ -130,13 +131,13 @@ def rewrite_text(text, token):
                         "Твоя задача — написать пост строго по шаблону. "
                         "Используй <b>жирный шрифт</b> только для трех заголовков (в шаблоне они уже есть). "
                         "КРИТИЧЕСКИ ВАЖНО: Пиши обычным текстом. НЕ ПИШИ КАЖДОЕ СЛОВО С БОЛЬШОЙ БУКВЫ. "
-                        "Только первая буква предложения должна быть заглавной. Никаких звездочек и маркдауна."
+                        "Строго 1-2 предложения на каждый пункт, чтобы уложиться в лимит."
                     )
                 },
                 {
                     "role": "user",
                     "content": (
-                        f"Напиши пост строго по этому шаблону (не отклоняйся от него):\n\n"
+                        f"Напиши пост строго по этому шаблону:\n\n"
                         f"<b>Что произошло?</b>\n[1-2 предложения сути]\n\n"
                         f"<b>Что это меняет для обычного человека?</b>\n[1-2 предложения о влиянии на кошелек]\n\n"
                         f"<b>За чем следить дальше?</b>\n[1 предложение о том, на какой показатель смотреть]\n\n"
@@ -157,10 +158,6 @@ def rewrite_text(text, token):
             rewritten = result['choices'][0]['message']['content'].strip()
             rewritten = re.sub(r'[*_`#]', '', rewritten)
             rewritten = fix_title_case(rewritten)
-            
-            if not re.search(r'[.!?]$', rewritten):
-                rewritten += "..." 
-                
             return rewritten.strip()
         return text
     except Exception as e:
@@ -168,19 +165,28 @@ def rewrite_text(text, token):
         return text
 
 # =====================================================================
-# 🎨 ГЕНЕРАЦИЯ КАРТИНОК (БЕЗ ТЕКСТА)
+# 🎨 ГЕНЕРАЦИЯ КАРТИНОК (ТОЛЬКО АБСТРАКЦИЯ)
 # =====================================================================
-def generate_image_gigachat(prompt, token):
+def generate_image_gigachat(token):
     if not token: return None
     try:
         url = "https://gigachat.devices.sberbank.ru/api/v1/chat/completions"
         headers = {'Content-Type': 'application/json', 'Authorization': f'Bearer {token}'}
         
+        # Отвязываем картинку от темы новости. Рисуем чистую абстракцию.
+        # Это гарантирует, что не будет Трампов, плакатов и текста.
+        prompts = [
+            "Abstract 3D financial background. Glowing blue and gold geometric shapes, floating coins, upward arrows. STRICTLY NO TEXT, NO LETTERS, NO NUMBERS.",
+            "Modern minimalist 3D financial illustration. Dark blue background, gold glowing stock market lines, abstract crystals. STRICTLY NO TEXT, NO TYPOGRAPHY.",
+            "Abstract 3D rendering of financial growth. Gold spheres, neon blue grids, futuristic architecture. STRICTLY NO TEXT, NO WATERMARKS."
+        ]
+        random_prompt = random.choice(prompts)
+        
         payload = {
             "model": "GigaChat",
             "messages": [
                 {"role": "system", "content": "You are a 3D artist. Use text2image. Return only <img src=\"FILE_ID\"/>"},
-                {"role": "user", "content": f"Abstract 3D financial illustration. Theme: {prompt}. Blue and gold colors, geometric shapes, glowing lines. STRICTLY NO TEXT, NO LETTERS, NO NUMBERS, NO TYPOGRAPHY, NO WATERMARKS. Clean minimalist background."}
+                {"role": "user", "content": random_prompt}
             ],
             "function_call": "auto"
         }
@@ -202,9 +208,14 @@ def generate_image_gigachat(prompt, token):
     except Exception:
         return None
 
-def generate_image_fallback(prompt):
+def generate_image_fallback():
     try:
-        safe_prompt = urllib.parse.quote(f"abstract 3d financial background, {prompt}, blue and gold, no text, no letters, no numbers, no typography, clean minimalist")
+        prompts = [
+            "abstract 3d financial background, blue and gold, glowing lines, no text, no letters",
+            "abstract 3d gold coins on dark blue background, no text, no numbers",
+            "minimalist 3d financial chart, glowing blue and gold, no typography"
+        ]
+        safe_prompt = urllib.parse.quote(random.choice(prompts))
         url = f"https://image.pollinations.ai/prompt/{safe_prompt}?width=1024&height=1024&nologo=true"
         headers = {'User-Agent': 'Mozilla/5.0'}
         response = requests.get(url, headers=headers, timeout=40)
@@ -259,14 +270,9 @@ def main():
     for feed_url in RSS_FEEDS:
         print(f"\nПроверка ленты: {feed_url}")
         try:
-            headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'}
-            resp = requests.get(feed_url, headers=headers, timeout=20)
-            resp.encoding = 'utf-8' 
-            feed = feedparser.parse(resp.content)
-            
+            # МАГИЯ КОДИРОВКИ: feedparser сам определит правильную кодировку (UTF-8 или Windows-1251)
+            feed = feedparser.parse(feed_url)
             print(f"Получено новостей из ленты: {len(feed.entries)}")
-            if len(feed.entries) == 0:
-                print("ВНИМАНИЕ: Лента пуста или не удалось её прочитать.")
         except Exception as e:
             print(f"Ошибка чтения RSS: {e}")
             continue
@@ -279,7 +285,12 @@ def main():
                     
                 title = clean_text(entry.title)
                 description = clean_text(getattr(entry, 'description', ''))
+                
+                # Проверяем на битые символы
                 text_to_check = f"{title}. {description}".lower()
+                if '�' in text_to_check:
+                    print(f"⏭️ Пропуск (битая кодировка в RSS): {title[:30]}...")
+                    continue
                 
                 if len(text_to_check) < 30:
                     continue
@@ -288,16 +299,16 @@ def main():
                 if not matched_keyword:
                     continue
 
-                print(f"🔥 Найдена новость: {title[:40]}... (по слову '{matched_keyword}')")
+                print(f"🔥 Найдена новость: {title[:40]}...")
                 
                 final_text = rewrite_text(f"{title}. {description}", token)
                 
-                print("Генерация постера...")
-                image_bytes = generate_image_gigachat(title, token)
+                print("Генерация абстрактного постера...")
+                image_bytes = generate_image_gigachat(token)
                 
                 if not image_bytes:
                     print("Резервный генератор...")
-                    image_bytes = generate_image_fallback(title)
+                    image_bytes = generate_image_fallback()
                 
                 success = False
                 if image_bytes:
