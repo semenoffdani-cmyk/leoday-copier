@@ -6,11 +6,6 @@ on:
     - cron: '2,7,12,17,22,27,32,37,42,47,52,57 * * * *'
   workflow_dispatch:
 
-# Защита от одновременных запусков
-concurrency:
-  group: ${{ github.workflow }}
-  cancel-in-progress: true
-
 permissions:
   contents: write
 
@@ -29,7 +24,7 @@ jobs:
       - name: Install dependencies
         run: pip install -r requirements.txt
 
-      # Строгое скачивание сертификата (без || echo)
+      # Скачиваем официальный сертификат Минцифры
       - name: Download Russian Trusted Root CA
         run: wget https://gu-st.ru/content/Other/doc/russiantrustedca.pem
 
