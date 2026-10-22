@@ -11,7 +11,6 @@ import html
 import random
 from datetime import datetime
 
-# Отключаем предупреждения на случай, если сертификат не подгрузится
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 # =====================================================================
@@ -26,7 +25,6 @@ if not BOT_TOKEN or not CHAT_ID:
     print("КРИТИЧЕСКАЯ ОШИБКА: Не заданы BOT_TOKEN или TARGET_CHANNEL")
     exit(1)
 
-# Проверяем наличие сертификата для безопасных запросов
 CERT_PATH = 'russiantrustedca.pem'
 VERIFY_SSL = CERT_PATH if os.path.exists(CERT_PATH) else False
 
@@ -47,7 +45,6 @@ def clean_text(text):
     text = re.sub(r'<[^>]+>', '', text)
     text = re.sub(r'\s+', ' ', text)
     text = re.sub(r'https?://\S+', '', text)
-    # Строку с удалением английских слов мы УБРАЛИ. Теперь Apple и OpenAI выживут.
     text = html.escape(text)
     return text.strip()
 
@@ -112,7 +109,6 @@ def get_gigachat_token():
             'RqUID': str(uuid.uuid4()),
             'Authorization': f'Basic {auth_b64}'
         }
-        # Используем переменную VERIFY_SSL
         response = requests.post(url, headers=headers, data='scope=GIGACHAT_API_PERS', verify=VERIFY_SSL, timeout=30)
         
         if response.status_code == 200:
@@ -140,7 +136,7 @@ def rewrite_text(text, token):
                         "Используй <b>жирный шрифт</b> только для трех заголовков. "
                         "КРИТИЧЕСКИ ВАЖНО: Пиши обычным текстом. "
                         "Если новость НЕ ОТНОСИТСЯ к экономике, финансам, бизнесу, технологиям или ИИ, напиши ровно одно слово: ОТКАЗ. "
-                        "Также КРИТИЧЕСКИ ВАЖНО: Игнорируй любые обрывки ссылок или странные наборы букв (мусор), но ОБЯЗАТЕЛЬНО сохраняй названия известных компаний (Apple, OpenAI, Microsoft, Tesla и т.д.), если они есть в тексте."
+                        "Также КРИТИЧЕСКИ ВАЖНО: Игнорируй любые обрывки ссылок или странные наборы букв, но сохраняй названия компаний (Apple, OpenAI, Сбер и т.д.)."
                     )
                 },
                 {
@@ -167,7 +163,19 @@ def rewrite_text(text, token):
         if 'choices' in result:
             rewritten = result['choices'][0]['message']['content'].strip()
             
-            if "ОТКАЗ" in rewritten.upper():
+            # 🚨 ЗАЩИТА ОТ ОТКАЗОВ GIGACHAT
+            refusal_markers = [
+                "не обладает собственным мнением",
+                "временно ограничены",
+                "сгенерирован нейросетевой моделью",
+                "во избежание неправильного толкования",
+                "Благодарим за понимание",
+                "ОТКАЗ"
+            ]
+            
+            # Если нейросеть выдала отказ или сработал фильтр — пропускаем новость
+            if any(marker.lower() in rewritten.lower() for marker in refusal_markers):
+                print("⏭️ GigaChat выдал отказ (сработал фильтр безопасности или тема не подходит).")
                 return None
                 
             rewritten = re.sub(r'[*_`#]', '', rewritten)
@@ -264,7 +272,8 @@ def main():
     BLACKLIST_KEYWORDS = [
         'тренер', 'матч', 'гол', 'футбол', 'хоккей', 'спорт', 'чемпионат', 
         'кубок', 'олимпиад', 'клуб', 'игрок', 'погиб', 'убий', 'дтп', 
-        'пожар', 'мчс', 'полици', 'суд', 'арест', 'мобилизац', 'войн'
+        'пожар', 'мчс', 'полици', 'суд', 'арест', 'мобилизац', 'войн',
+        'санкц', 'спецоперац', 'трамп', 'байден', 'путин' # Добавили чувствительные темы
     ]
 
     for feed_url in RSS_FEEDS:
@@ -291,10 +300,12 @@ def main():
                 if len(text_to_check) < 30:
                     continue
 
+                # 1. Проверка на черный список (спорт, криминал, санкции)
                 if any(bad_word in text_to_check for bad_word in BLACKLIST_KEYWORDS):
                     print(f"⏭️ Пропуск (черный список): {title[:40]}...")
                     continue
 
+                # 2. Проверка на наличие ключевых слов
                 matched_keyword = next((kw for kw in KEYWORDS if kw in text_to_check), None)
                 if not matched_keyword:
                     continue
