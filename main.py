@@ -41,7 +41,7 @@ RSS_FEEDS = [
     'https://ria.ru/export/rss2/archive/index.xml'
 ]
 
-# 🚫 МАКСИМАЛЬНЫЙ ЧЕРНЫЙ СПИСОК
+# 🚫 МАКСИМАЛЬНЫЙ ЧЕРНЫЙ СПИСОК (Защита от мусора)
 BLACKLIST_REGEX = re.compile(
     r'тренер|матч|гол|футбол|хоккей|спорт|чемпионат|кубок|олимпиад|клуб|игрок|трусов|'
     r'теннис|бокс|ufc|mma|фигурное|биатлон|плавание|футболист|хоккеист|медаль|турнир|'
@@ -77,8 +77,9 @@ KEYWORDS_REGEX = re.compile(
     r'фарм|медицин|труд|безработ|персонал|кадр|миграц|логистик|транспорт|стройк|недвижим', re.IGNORECASE
 )
 
+# Настройка сессии с автоматическими повторными попытками
 SESSION = requests.Session()
-retries = Retry(total=3, backoff_factor=1, status_forcelist=[429, 500, 502, 503, 504])
+retries = Retry(total=3, backoff_factor=1.5, status_forcelist=[429, 500, 502, 503, 504])
 SESSION.mount('https://', HTTPAdapter(max_retries=retries))
 
 # =====================================================================
@@ -197,7 +198,7 @@ def cosine_similarity(vec1, vec2):
     return dot_product / (norm1 * norm2)
 
 # =====================================================================
-# 🤖 GIGACHAT: РЕРАЙТ ТЕКСТА
+# 🤖 GIGACHAT: РЕРАЙТ ТЕКСТА (ЭТАЛОННЫЙ)
 # =====================================================================
 def rewrite_text(text, token):
     if not token or not text: return None
@@ -211,7 +212,8 @@ def rewrite_text(text, token):
                     "Ты — профессиональный редактор финансового канала. Пиши строго по шаблону. "
                     "КРИТИЧЕСКИ ВАЖНО: Проверяй падежи и согласование слов! "
                     "Помни: 'Банк России' — это мужской род. Правильно: 'Банк России назначил', а НЕ 'Банка России назначила'. "
-                    "КРИТИЧЕСКИ ВАЖНО: НЕ приписывай Банку России (Центробанку) несуществующие функции! Он не занимается развитием бизнеса в Африке, не строит заводы и не выдает кредиты компаниям. Если в новости речь идет о другой организации, пиши именно её название."
+                    "КРИТИЧЕСКИ ВАЖНО: НЕ приписывай Банку России (Центробанку) несуществующие функции! Если в новости речь идет о другой организации, пиши именно её название. "
+                    "Если новость НЕ ОТНОСИТСЯ к экономике, финансам, бизнесу или технологиям, напиши ровно одно слово: ОТКАЗ."
                 )},
                 {"role": "user", "content": (
                     f"Напиши пост строго по этому шаблону (не добавляй ничего лишнего):\n\n"
@@ -227,6 +229,7 @@ def rewrite_text(text, token):
         if response.status_code != 200: return None
         rewritten = response.json()['choices'][0]['message']['content'].strip()
         
+        # Защита от отказов и пустых ответов
         if any(root in rewritten.lower() for root in ["генеративн", "облада", "мнени", "ограничен", "неправильн", "благодарим", "отказ"]): return None
         if len(rewritten) < 50: return None
         
@@ -239,19 +242,19 @@ def rewrite_text(text, token):
         rewritten = re.sub(r'(?i)amburg\w*', '', rewritten)
         rewritten = re.sub(r'(?i)domclick', '', rewritten)
         
-        # 3. Исправляем регистр "Банк России"
+        # 3. Исправляем регистр
         rewritten = re.sub(r'(?i)банк россии', 'Банк России', rewritten)
+        rewritten = re.sub(r'(?i)^\s*Банк России\s*\n+', '', rewritten)
         
         # 4. Форматируем заголовки
         rewritten = re.sub(r'(?i)что это значит\?', '<b>Что это значит?</b>', rewritten)
         rewritten = re.sub(r'(?i)что дальше\?', '<b>Что дальше?</b>', rewritten)
         
-        # 5. Принудительные отступы (ДОБАВЛЯЕМ)
+        # 5. Принудительные отступы
         rewritten = re.sub(r'\s*<b>', '\n\n<b>', rewritten)
         rewritten = re.sub(r'</b>\s*', '</b>\n\n', rewritten)
         
-        # 🚨 6. УБИРАЕМ ЛИШНИЕ ПЕРНОСЫ (ПЫЛЕСОС)
-        # Эта строка находит 3 и более переноса строки подряд и заменяет их на 2 (один отступ)
+        # 🚨 6. УБИРАЕМ ЛИШНИЕ ПЕРЕНОСЫ (Пылесос)
         rewritten = re.sub(r'\n{3,}', '\n\n', rewritten)
         
         return rewritten.strip()
@@ -323,22 +326,37 @@ def generate_image_gigachat(news_text, token):
     except Exception: return None
 
 # =====================================================================
-# ✈️ TELEGRAM
+# ✈️ TELEGRAM: ОТПРАВКА С ЗАЩИТОЙ ОТ ЛИМИТОВ И ОШИБОК
 # =====================================================================
 def send_photo(text, image_bytes):
     url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendPhoto"
-    if len(text) > 1000: text = text[:1000] + "..."
+    
+    # ЗАЩИТА ОТ ЛИМИТА В 1024 СИМВОЛА (Если текст длинный - шлем отдельно)
+    if len(text) > 1000:
+        try:
+            # Сначала шлем картинку без текста
+            SESSION.post(url, data={"chat_id": CHAT_ID}, files={"photo": ("poster.jpg", image_bytes, "image/jpeg")}, timeout=30)
+            # Потом шлем текст
+            return send_text(text)
+        except Exception:
+            return False
+
+    payload = {"chat_id": CHAT_ID, "caption": text, "parse_mode": "HTML"}
+    files = {"photo": ("poster.jpg", image_bytes, "image/jpeg")}
     try:
-        res = SESSION.post(url, data={"chat_id": CHAT_ID, "caption": text, "parse_mode": "HTML"}, files={"photo": ("poster.jpg", image_bytes, "image/jpeg")}, timeout=30)
+        res = SESSION.post(url, data=payload, files=files, timeout=30)
         return res.ok
-    except: return False
+    except Exception:
+        return False
 
 def send_text(text):
     url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
+    payload = {"chat_id": CHAT_ID, "text": text, "parse_mode": "HTML", "disable_web_page_preview": True}
     try:
-        res = SESSION.post(url, json={"chat_id": CHAT_ID, "text": text, "parse_mode": "HTML", "disable_web_page_preview": True}, timeout=15)
+        res = SESSION.post(url, json=payload, timeout=15)
         return res.ok
-    except: return False
+    except Exception:
+        return False
 
 # =====================================================================
 # 🚀 MAIN
@@ -348,12 +366,20 @@ def main():
     embeddings_history = load_json(EMBEDDINGS_FILE)
     
     token = get_gigachat_token()
-    if not token: return
+    if not token:
+        print("КРИТИЧЕСКАЯ ОШИБКА: GigaChat недоступен. Публикация отменена.")
+        return
+        
     new_posts_count = 0
 
     for feed_url in RSS_FEEDS:
-        try: feed = feedparser.parse(feed_url)
-        except Exception: continue
+        try: 
+            feed = feedparser.parse(feed_url)
+            if not feed.entries:
+                continue
+        except Exception as e: 
+            print(f"Ошибка чтения RSS {feed_url}: {e}")
+            continue
         
         for entry in feed.entries[:30]:
             try:
@@ -364,29 +390,37 @@ def main():
                 description = clean_text(getattr(entry, 'description', ''))
                 text_to_check = f"{title}. {description}".lower()
                 
+                # Фильтр мусора и битых символов
                 if '�' in text_to_check or len(text_to_check) < 30: continue
                 if BLACKLIST_REGEX.search(text_to_check): continue
                 if not KEYWORDS_REGEX.search(text_to_check): continue
 
-                print(f"🔥 Новость: {title[:40]}...")
+                print(f"🔥 Найдена новость: {title[:40]}...")
                 
+                # 1. ДЕДУПЛИКАЦИЯ (Векторы)
                 news_embedding = get_embedding(title, token)
                 if news_embedding:
                     is_duplicate = False
                     for old_url, old_emb in embeddings_history.items():
                         similarity = cosine_similarity(news_embedding, old_emb)
                         if similarity > SIMILARITY_THRESHOLD:
-                            print(f"⏭️ Пропуск (семантический дубль). Сходство: {similarity:.2f}")
+                            print(f"⏭️ Пропуск (дубль). Сходство: {similarity:.2f}")
                             is_duplicate = True
                             break
                     if is_duplicate: continue
 
+                # 2. ФАКТЧЕКИНГ ЦИФР
                 original_percents = set(re.findall(r'(\d+(?:[.,]\d+)?)\s*%', text_to_check))
 
+                # 3. РЕРАЙТ И РУБРИКА
                 category_header = detect_category(text_to_check)
                 final_text = rewrite_text(f"{title}. {description}", token)
-                if not final_text: continue
                 
+                if not final_text:
+                    print("⏭️ Пропуск: GigaChat отказался или текст пуст.")
+                    continue
+                
+                # Проверка процентов в ответе ИИ
                 if original_percents:
                     rewritten_lower = final_text.lower()
                     for p in original_percents:
@@ -398,10 +432,17 @@ def main():
                 
                 if not final_text: continue
 
+                # 4. ГЕНЕРАЦИЯ КАРТИНКИ
                 image_bytes = generate_image_gigachat(text_to_check, token)
+                
+                # 5. ПУБЛИКАЦИЯ
                 text_to_publish = category_header + final_text + f"\n\n🔗 <a href='{news_id}'>Источник</a>"
                 
-                success = send_photo(text_to_publish, image_bytes) if image_bytes else send_text(text_to_publish)
+                if image_bytes:
+                    success = send_photo(text_to_publish, image_bytes)
+                else:
+                    print("Картинка не сгенерирована, отправляем только текст.")
+                    success = send_text(text_to_publish)
                 
                 if success:
                     print("✅ Опубликовано!")
@@ -418,9 +459,11 @@ def main():
                     new_posts_count += 1
                     time.sleep(4)
             except Exception as e:
-                print(f"Ошибка: {e}")
+                print(f"Ошибка при обработке новости: {e}")
                 continue
-            if new_posts_count >= 1: return
+                
+            if new_posts_count >= 1: 
+                return
 
 if __name__ == '__main__':
     main()
