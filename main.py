@@ -35,6 +35,7 @@ CERT_PATH = 'russiantrustedca.pem'
 VERIFY_SSL = CERT_PATH if os.path.exists(CERT_PATH) else True
 HISTORY_FILE = 'history.json'
 EMBEDDINGS_FILE = 'embeddings.json'
+RAW_LOG_FILE = 'raw_gigachat.txt' # Файл для сырых ответов
 
 SIMILARITY_THRESHOLD = 0.85
 MAX_EMBEDDINGS_HISTORY = 50 
@@ -45,7 +46,7 @@ RSS_FEEDS = [
     'https://ria.ru/export/rss2/archive/index.xml'
 ]
 
-# 🚫 УМЕРЕННЫЙ ЧЕРНЫЙ СПИСОК (ИСПРАВЛЕН)
+# 🚫 УМЕРЕННЫЙ ЧЕРНЫЙ СПИСОК
 BLACKLIST_REGEX = re.compile(
     r'тренер|матч|гол|футбол|хоккей|спорт|чемпионат|кубок|олимпиад|клуб|игрок|трусов|'
     r'теннис|бокс|ufc|mma|фигурное|биатлон|плавание|футболист|хоккеист|медаль|турнир|'
@@ -67,7 +68,7 @@ BLACKLIST_REGEX = re.compile(
     re.IGNORECASE
 )
 
-# ✅ БЕЛЫЙ СПИСОК (ИСПРАВЛЕН)
+# ✅ БЕЛЫЙ СПИСОК
 KEYWORDS_REGEX = re.compile(
     r'ставк|рубл|инфляц|цб |банк|акци|нефт|бюджет|налог|финанс|кредит|вклад|бирж|доллар|'
     r'евро|рынок|экономик|компан|убыт|прибыл|тариф|цен|рецесс|дефляц|профицит|дефицит|'
@@ -100,6 +101,9 @@ def remove_garbage(text):
         return ''
     text = re.sub(r'\b[a-zA-Z]{4,}\b', replace_word, text)
     text = re.sub(r'(?i)amburg\w*', '', text)
+    text = re.sub(r'(?i)domclick', '', text)
+    text = re.sub(r'\.(ru|com|org|net)\s+\d{2}\.\d{2}\.\d{4}', '', text, flags=re.IGNORECASE)
+    text = re.sub(r'\b\d{2}\.\d{2}\.\d{4}\b', '', text) 
     return text
 
 def fix_caps(text):
@@ -135,27 +139,15 @@ def save_json(data, filepath):
     except Exception as e: 
         print(f"Ошибка сохранения {filepath}: {e}")
 
-def fix_title_case(text):
-    lines = text.split('\n')
-    fixed_lines = []
-    for line in lines:
-        clean_line = line.strip()
-        if clean_line.startswith('<b>') and '</b>' in clean_line:
-            match = re.search(r'<b>(.*?)</b>(.*)', clean_line)
-            if match:
-                heading = match.group(1).lower().capitalize()
-                body = match.group(2).strip()
-                if body and sum(1 for w in body.split() if w[:1].isupper()) > len(body.split()) * 0.5:
-                    body = body.lower()
-                    if body: body = body[0].upper() + body[1:]
-                fixed_lines.append(f"<b>{heading}</b>\n{body}")
-        else:
-            words = clean_line.split()
-            if len(words) > 3 and sum(1 for w in words if w[:1].isupper()) > len(words) * 0.6:
-                clean_line = clean_line.lower()
-                if clean_line: clean_line = clean_line[0].upper() + clean_line[1:]
-            fixed_lines.append(clean_line)
-    return '\n'.join(fixed_lines)
+def save_raw_response(raw_text, source_url):
+    """Сохраняет сырой ответ GigaChat в файл для аудита."""
+    try:
+        with open(RAW_LOG_FILE, 'a', encoding='utf-8') as f:
+            f.write(f"\n--- НОВОСТЬ: {source_url} ---\n")
+            f.write(raw_text)
+            f.write("\n-----------------------------\n")
+    except Exception as e:
+        print(f"Ошибка сохранения raw-лога: {e}")
 
 # =====================================================================
 # 🏷️ УМНАЯ СИСТЕМА РУБРИК
@@ -216,67 +208,69 @@ def cosine_similarity(vec1, vec2):
     return dot_product / (norm1 * norm2)
 
 # =====================================================================
-# 🤖 GIGACHAT: РЕРАЙТ ТЕКСТА
+# 🤖 GIGACHAT: РЕРАЙТ ТЕКСТА (СЫРОЙ ТЕКСТ + ЖЕСТКОЕ ФОРМАТИРОВАНИЕ)
 # =====================================================================
-def rewrite_text(text, token):
+def rewrite_text(text, token, source_url):
     if not token or not text: return None
     try:
         url = "https://gigachat.devices.sberbank.ru/api/v1/chat/completions"
         headers = {'Content-Type': 'application/json', 'Authorization': f'Bearer {token}'}
+        
+        # 🚨 ПРОМПТ: Просим GigaChat выдать ТОЛЬКО СУТЬ, без тегов и отступов
         payload = {
             "model": "GigaChat",
             "messages": [
                 {"role": "system", "content": (
-                    "Ты — профессиональный редактор финансового канала. Пиши строго по шаблону. "
-                    "КРИТИЧЕСКИ ВАЖНО: Проверяй падежи и согласование слов! "
-                    "Помни: 'Банк России' — это мужской род. Правильно: 'Банк России назначил', а НЕ 'Банка России назначила'. "
-                    "КРИТИЧЕСКИ ВАЖНО: Слова 'ставка', 'курс', 'санкции', 'валютный контроль' в экономическом контексте НЕ являются политикой. Анализируй их только с точки зрения влияния на финансы. "
+                    "Ты — профессиональный редактор финансового канала. "
+                    "Твоя задача — написать пост строго по шаблону. "
                     "Если новость НЕ ОТНОСИТСЯ к экономике, финансам, бизнесу или технологиям, напиши ровно одно слово: ОТКАЗ."
                 )},
                 {"role": "user", "content": (
-                    f"Напиши пост строго по этому шаблону (не добавляй ничего лишнего):\n\n"
-                    f"[1-2 предложения СУТИ новости. Обязательно начни с заглавной буквы. НЕ пиши просто 'Банк России'. Не пиши капсом.]\n\n"
-                    f"<b>Что это значит?</b>\n\n[1-2 предложения о влиянии на кошелек или работу]\n\n"
-                    f"<b>Что дальше?</b>\n\n[1 предложение о том, на какой показатель смотреть]\n\n"
+                    f"Напиши ровно 3 абзаца текста, разделенных переносом строки. Без тегов, без жирного шрифта, без отступов.\n"
+                    f"1. Суть новости (1-2 предложения).\n"
+                    f"2. Что это значит для кошелька или работы (1-2 предложения).\n"
+                    f"3. Что дальше (1 предложение).\n\n"
                     f"Текст новости:\n{text}"
                 )}
             ],
             "temperature": 0.3, "max_tokens": 1000
         }
+        
         response = SESSION.post(url, headers=headers, json=payload, verify=VERIFY_SSL, timeout=90)
         if response.status_code != 200: 
             print(f"DEBUG: Ошибка рерайта GigaChat: {response.status_code}")
             return None
-        rewritten = response.json()['choices'][0]['message']['content'].strip()
+            
+        raw_rewritten = response.json()['choices'][0]['message']['content'].strip()
         
-        if any(root in rewritten.lower() for root in ["генеративн", "облада", "мнени", "ограничен", "неправильн", "благодарим", "отказ"]): 
+        # Сохраняем сырой ответ в файл для аудита
+        save_raw_response(raw_rewritten, source_url)
+        
+        if any(root in raw_rewritten.lower() for root in ["генеративн", "облада", "мнени", "ограничен", "неправильн", "благодарим", "отказ"]): 
             print("DEBUG: GigaChat выдал ОТКАЗ.")
             return None
-        if len(rewritten) < 50: 
+        if len(raw_rewritten) < 50: 
             print("DEBUG: GigaChat выдал слишком короткий текст.")
             return None
         
-        rewritten = re.sub(r'[*_`#]', '', rewritten)
-        rewritten = fix_title_case(rewritten)
+        # 🚨 ЖЕСТКОЕ ФОРМАТИРОВАНИЕ КОДОМ
+        # Разбиваем текст на абзацы по переносам строк
+        paragraphs = [p.strip() for p in raw_rewritten.split('\n') if p.strip()]
         
-        rewritten = re.sub(r'(?i)банк россии не имеет отношения к данной информации\.?\s*', '', rewritten)
-        rewritten = re.sub(r'(?i)amburg\w*', '', rewritten)
-        rewritten = re.sub(r'(?i)domclick', '', rewritten)
+        if len(paragraphs) < 3:
+            print(f"DEBUG: GigaChat вернул не 3 абзаца (а {len(paragraphs)}).")
+            return None
+            
+        # Берем первые 3 абзаца и форматируем их
+        final_text = (
+            f"{paragraphs[0]}\n\n"
+            f"<b>Что это значит?</b>\n\n"
+            f"{paragraphs[1]}\n\n"
+            f"<b>Что дальше?</b>\n\n"
+            f"{paragraphs[2]}"
+        )
         
-        if re.match(r'^[А-ЯA-Z]', rewritten) and re.match(r'^[А-ЯA-Z]+\s', rewritten):
-            first_word = rewritten.split()[0]
-            if first_word.endswith(('Л', 'ЛА', 'ЛО', 'ЛИ', 'ЕТ', 'ИТ', 'УТ', 'ЮТ')):
-                rewritten = "Банк России " + rewritten
-
-        rewritten = re.sub(r'(?i)банк россии', 'Банк России', rewritten)
-        
-        rewritten = re.sub(r'(?i)что это значит\?', '<b>Что это значит?</b>', rewritten)
-        rewritten = re.sub(r'(?i)что дальше\?', '<b>Что дальше?</b>', rewritten)
-        
-        rewritten = re.sub(r'\s*<b>', '\n\n<b>', rewritten)
-        rewritten = re.sub(r'</b>\s*', '</b>\n\n', rewritten)
-        
-        return rewritten.strip()
+        return final_text.strip()
     except Exception as e: 
         print(f"DEBUG: Исключение при рерайте: {e}")
         return None
@@ -446,7 +440,7 @@ def main():
                 original_percents = set(re.findall(r'(\d+(?:[.,]\d+)?)\s*%', text_to_check))
 
                 category_header = detect_category(text_to_check)
-                final_text = rewrite_text(f"{title}. {description}", token)
+                final_text = rewrite_text(f"{title}. {description}", token, news_id)
                 if not final_text: 
                     print("DEBUG: ⏭️ Пропуск (GigaChat не смог переписать).")
                     continue
