@@ -41,7 +41,7 @@ RSS_FEEDS = [
     'https://ria.ru/export/rss2/archive/index.xml'
 ]
 
-# 🚫 МАКСИМАЛЬНЫЙ ЧЕРНЫЙ СПИСОК (Защита от мусора)
+# 🚫 МАКСИМАЛЬНЫЙ ЧЕРНЫЙ СПИСОК
 BLACKLIST_REGEX = re.compile(
     r'тренер|матч|гол|футбол|хоккей|спорт|чемпионат|кубок|олимпиад|клуб|игрок|трусов|'
     r'теннис|бокс|ufc|mma|фигурное|биатлон|плавание|футболист|хоккеист|медаль|турнир|'
@@ -77,9 +77,8 @@ KEYWORDS_REGEX = re.compile(
     r'фарм|медицин|труд|безработ|персонал|кадр|миграц|логистик|транспорт|стройк|недвижим', re.IGNORECASE
 )
 
-# Настройка сессии с автоматическими повторными попытками
 SESSION = requests.Session()
-retries = Retry(total=3, backoff_factor=1.5, status_forcelist=[429, 500, 502, 503, 504])
+retries = Retry(total=3, backoff_factor=1, status_forcelist=[429, 500, 502, 503, 504])
 SESSION.mount('https://', HTTPAdapter(max_retries=retries))
 
 # =====================================================================
@@ -198,7 +197,7 @@ def cosine_similarity(vec1, vec2):
     return dot_product / (norm1 * norm2)
 
 # =====================================================================
-# 🤖 GIGACHAT: РЕРАЙТ ТЕКСТА (ЭТАЛОННЫЙ)
+# 🤖 GIGACHAT: РЕРАЙТ ТЕКСТА (ЖЕЛЕЗОБЕТОННАЯ СТРУКТУРА)
 # =====================================================================
 def rewrite_text(text, token):
     if not token or not text: return None
@@ -212,12 +211,12 @@ def rewrite_text(text, token):
                     "Ты — профессиональный редактор финансового канала. Пиши строго по шаблону. "
                     "КРИТИЧЕСКИ ВАЖНО: Проверяй падежи и согласование слов! "
                     "Помни: 'Банк России' — это мужской род. Правильно: 'Банк России назначил', а НЕ 'Банка России назначила'. "
-                    "КРИТИЧЕСКИ ВАЖНО: НЕ приписывай Банку России (Центробанку) несуществующие функции! Если в новости речь идет о другой организации, пиши именно её название. "
+                    "КРИТИЧЕСКИ ВАЖНО: НЕ приписывай Банку России (Центробанку) несуществующие функции! "
                     "Если новость НЕ ОТНОСИТСЯ к экономике, финансам, бизнесу или технологиям, напиши ровно одно слово: ОТКАЗ."
                 )},
                 {"role": "user", "content": (
-                    f"Напиши пост строго по этому шаблону (не добавляй ничего лишнего):\n\n"
-                    f"[1-2 предложения СУТИ новости. Обязательно начни с заглавной буквы. НЕ пиши просто 'Банк России'. Не пиши капсом.]\n\n"
+                    f"Напиши пост строго по этому шаблону:\n\n"
+                    f"[1-2 предложения СУТИ новости. Обязательно начни с заглавной буквы. НЕ пиши просто 'Банк России'.]\n\n"
                     f"<b>Что это значит?</b>\n\n[1-2 предложения о влиянии на кошелек или работу]\n\n"
                     f"<b>Что дальше?</b>\n\n[1 предложение о том, на какой показатель смотреть]\n\n"
                     f"Текст новости:\n{text}"
@@ -229,36 +228,52 @@ def rewrite_text(text, token):
         if response.status_code != 200: return None
         rewritten = response.json()['choices'][0]['message']['content'].strip()
         
-        # Защита от отказов и пустых ответов
+        # Защита от отказов
         if any(root in rewritten.lower() for root in ["генеративн", "облада", "мнени", "ограничен", "неправильн", "благодарим", "отказ"]): return None
         if len(rewritten) < 50: return None
         
-        # 1. Очистка и нормализация
+        # 1. Очищаем от мусорных символов и КАПСА
         rewritten = re.sub(r'[*_`#]', '', rewritten)
-        rewritten = fix_title_case(rewritten)
+        rewritten = fix_caps(rewritten)
         
-        # 2. Удаляем фразы-паразиты
+        # 2. УДАЛЯЕМ ВСЕ существующие переносы строк и лишние пробелы
+        # Превращаем текст в одну длинную строку
+        rewritten = re.sub(r'\s+', ' ', rewritten).strip()
+        
+        # 3. Удаляем фразы-паразиты (на всякий случай)
         rewritten = re.sub(r'(?i)банк россии не имеет отношения к данной информации\.?\s*', '', rewritten)
         rewritten = re.sub(r'(?i)amburg\w*', '', rewritten)
         rewritten = re.sub(r'(?i)domclick', '', rewritten)
+        rewritten = re.sub(r'(?i)^банк россии\s*', '', rewritten) # Убираем в начале, если есть
         
-        # 3. Исправляем регистр
-        rewritten = re.sub(r'(?i)банк россии', 'Банк России', rewritten)
-        rewritten = re.sub(r'(?i)^\s*Банк России\s*\n+', '', rewritten)
+        # 4. Ищем заголовки в получившейся строке
+        # Используем маркеры, чтобы разрезать текст на 3 части
+        rewritten = re.sub(r'(?i)что это значит\?', '|||SPLIT1|||', rewritten)
+        rewritten = re.sub(r'(?i)что дальше\?', '|||SPLIT2|||', rewritten)
         
-        # 4. Форматируем заголовки
-        rewritten = re.sub(r'(?i)что это значит\?', '<b>Что это значит?</b>', rewritten)
-        rewritten = re.sub(r'(?i)что дальше\?', '<b>Что дальше?</b>', rewritten)
+        parts = re.split(r'\|\|\|SPLIT1\|\|\||\|\|\|SPLIT2\|\|\|', rewritten)
         
-        # 5. Принудительные отступы
-        rewritten = re.sub(r'\s*<b>', '\n\n<b>', rewritten)
-        rewritten = re.sub(r'</b>\s*', '</b>\n\n', rewritten)
+        # 5. СОБИРАЕМ ПОСТ ЗАНОВО С ИДЕАЛЬНЫМИ ОТСТУПАМИ
+        if len(parts) == 3:
+            # Если ИИ четко выдал три части
+            result = parts[0].strip() + "\n\n"
+            result += "<b>Что это значит?</b>\n\n" + parts[1].strip() + "\n\n"
+            result += "<b>Что дальше?</b>\n\n" + parts[2].strip()
+        elif len(parts) == 2:
+            # Если потерялся один заголовок
+            result = parts[0].strip() + "\n\n"
+            result += "<b>Что это значит?</b>\n\n" + parts[1].strip()
+        else:
+            # Если ИИ вообще все сломал, просто выдаем текст как есть
+            result = parts[0].strip()
+
+        # 6. Убираем лишние переносы на всякий случай
+        result = re.sub(r'\n{3,}', '\n\n', result)
         
-        # 🚨 6. УБИРАЕМ ЛИШНИЕ ПЕРЕНОСЫ (Пылесос)
-        rewritten = re.sub(r'\n{3,}', '\n\n', rewritten)
-        
-        return rewritten.strip()
-    except Exception: return None
+        return result.strip()
+    except Exception as e:
+        print(f"Ошибка форматирования: {e}")
+        return None
 
 # =====================================================================
 # 🎨 GIGACHAT: ГЕНЕРАЦИЯ КАРТИНОК
@@ -326,37 +341,22 @@ def generate_image_gigachat(news_text, token):
     except Exception: return None
 
 # =====================================================================
-# ✈️ TELEGRAM: ОТПРАВКА С ЗАЩИТОЙ ОТ ЛИМИТОВ И ОШИБОК
+# ✈️ TELEGRAM
 # =====================================================================
 def send_photo(text, image_bytes):
     url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendPhoto"
-    
-    # ЗАЩИТА ОТ ЛИМИТА В 1024 СИМВОЛА (Если текст длинный - шлем отдельно)
-    if len(text) > 1000:
-        try:
-            # Сначала шлем картинку без текста
-            SESSION.post(url, data={"chat_id": CHAT_ID}, files={"photo": ("poster.jpg", image_bytes, "image/jpeg")}, timeout=30)
-            # Потом шлем текст
-            return send_text(text)
-        except Exception:
-            return False
-
-    payload = {"chat_id": CHAT_ID, "caption": text, "parse_mode": "HTML"}
-    files = {"photo": ("poster.jpg", image_bytes, "image/jpeg")}
+    if len(text) > 1000: text = text[:1000] + "..."
     try:
-        res = SESSION.post(url, data=payload, files=files, timeout=30)
+        res = SESSION.post(url, data={"chat_id": CHAT_ID, "caption": text, "parse_mode": "HTML"}, files={"photo": ("poster.jpg", image_bytes, "image/jpeg")}, timeout=30)
         return res.ok
-    except Exception:
-        return False
+    except: return False
 
 def send_text(text):
     url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
-    payload = {"chat_id": CHAT_ID, "text": text, "parse_mode": "HTML", "disable_web_page_preview": True}
     try:
-        res = SESSION.post(url, json=payload, timeout=15)
+        res = SESSION.post(url, json={"chat_id": CHAT_ID, "text": text, "parse_mode": "HTML", "disable_web_page_preview": True}, timeout=15)
         return res.ok
-    except Exception:
-        return False
+    except: return False
 
 # =====================================================================
 # 🚀 MAIN
@@ -366,20 +366,12 @@ def main():
     embeddings_history = load_json(EMBEDDINGS_FILE)
     
     token = get_gigachat_token()
-    if not token:
-        print("КРИТИЧЕСКАЯ ОШИБКА: GigaChat недоступен. Публикация отменена.")
-        return
-        
+    if not token: return
     new_posts_count = 0
 
     for feed_url in RSS_FEEDS:
-        try: 
-            feed = feedparser.parse(feed_url)
-            if not feed.entries:
-                continue
-        except Exception as e: 
-            print(f"Ошибка чтения RSS {feed_url}: {e}")
-            continue
+        try: feed = feedparser.parse(feed_url)
+        except Exception: continue
         
         for entry in feed.entries[:30]:
             try:
@@ -390,37 +382,29 @@ def main():
                 description = clean_text(getattr(entry, 'description', ''))
                 text_to_check = f"{title}. {description}".lower()
                 
-                # Фильтр мусора и битых символов
                 if '�' in text_to_check or len(text_to_check) < 30: continue
                 if BLACKLIST_REGEX.search(text_to_check): continue
                 if not KEYWORDS_REGEX.search(text_to_check): continue
 
-                print(f"🔥 Найдена новость: {title[:40]}...")
+                print(f"🔥 Новость: {title[:40]}...")
                 
-                # 1. ДЕДУПЛИКАЦИЯ (Векторы)
                 news_embedding = get_embedding(title, token)
                 if news_embedding:
                     is_duplicate = False
                     for old_url, old_emb in embeddings_history.items():
                         similarity = cosine_similarity(news_embedding, old_emb)
                         if similarity > SIMILARITY_THRESHOLD:
-                            print(f"⏭️ Пропуск (дубль). Сходство: {similarity:.2f}")
+                            print(f"⏭️ Пропуск (семантический дубль). Сходство: {similarity:.2f}")
                             is_duplicate = True
                             break
                     if is_duplicate: continue
 
-                # 2. ФАКТЧЕКИНГ ЦИФР
                 original_percents = set(re.findall(r'(\d+(?:[.,]\d+)?)\s*%', text_to_check))
 
-                # 3. РЕРАЙТ И РУБРИКА
                 category_header = detect_category(text_to_check)
                 final_text = rewrite_text(f"{title}. {description}", token)
+                if not final_text: continue
                 
-                if not final_text:
-                    print("⏭️ Пропуск: GigaChat отказался или текст пуст.")
-                    continue
-                
-                # Проверка процентов в ответе ИИ
                 if original_percents:
                     rewritten_lower = final_text.lower()
                     for p in original_percents:
@@ -432,17 +416,10 @@ def main():
                 
                 if not final_text: continue
 
-                # 4. ГЕНЕРАЦИЯ КАРТИНКИ
                 image_bytes = generate_image_gigachat(text_to_check, token)
-                
-                # 5. ПУБЛИКАЦИЯ
                 text_to_publish = category_header + final_text + f"\n\n🔗 <a href='{news_id}'>Источник</a>"
                 
-                if image_bytes:
-                    success = send_photo(text_to_publish, image_bytes)
-                else:
-                    print("Картинка не сгенерирована, отправляем только текст.")
-                    success = send_text(text_to_publish)
+                success = send_photo(text_to_publish, image_bytes) if image_bytes else send_text(text_to_publish)
                 
                 if success:
                     print("✅ Опубликовано!")
@@ -459,11 +436,9 @@ def main():
                     new_posts_count += 1
                     time.sleep(4)
             except Exception as e:
-                print(f"Ошибка при обработке новости: {e}")
+                print(f"Ошибка: {e}")
                 continue
-                
-            if new_posts_count >= 1: 
-                return
+            if new_posts_count >= 1: return
 
 if __name__ == '__main__':
     main()
