@@ -256,7 +256,6 @@ def rewrite_text(text, token, source_url):
             print(f"DEBUG: GigaChat вернул не 3 абзаца (а {len(paragraphs)}).")
             return None
             
-        # 🚨 ПРОВЕРКА: Если первый абзац слишком короткий, пропускаем новость
         if len(paragraphs[0]) < 100:
             print(f"DEBUG: Первый абзац слишком короткий ({len(paragraphs[0])} символов). Пропуск.")
             return None
@@ -275,20 +274,19 @@ def rewrite_text(text, token, source_url):
         return None
 
 # =====================================================================
-# 🎨 GIGACHAT: ГЕНЕРАЦИЯ КАРТИНОК
+# 🎨 GIGACHAT: ГЕНЕРАЦИЯ КАРТИНОК (БЕЗ ТЕКСТА ИЗ НОВОСТИ)
 # =====================================================================
-def generate_image_gigachat(news_text, token):
+def generate_image_gigachat(category_name, token):
     if not token: return None
     try:
         url = "https://gigachat.devices.sberbank.ru/api/v1/chat/completions"
         headers = {'Content-Type': 'application/json', 'Authorization': f'Bearer {token}'}
         
-        short_text = news_text[:150].replace('\n', ' ')
-        
         base_style = "Cinematic lighting, Octane render, 8k resolution, minimalist corporate style, deep navy blue and metallic gold colors, highly detailed."
         
+        # Промпт только на основе рубрики, чтобы не рисовать текст
         prompt = (
-            f"Create a conceptual 3D illustration that metaphorically represents this news: '{short_text}'. "
+            f"Create a conceptual 3D illustration for a financial news channel. Theme: {category_name}. "
             f"Use {base_style}. NO TEXT, NO LETTERS, NO ALPHABET, NO WORDS, NO NUMBERS, NO LOGOS."
         )
 
@@ -428,7 +426,9 @@ def main():
                 
                 if not final_text: continue
 
-                image_bytes = generate_image_gigachat(text_to_check, token)
+                # Генерируем картинку на основе рубрики, а не текста
+                category_name = category_header.replace('<b>', '').replace('</b>', '').replace('\n', '').strip()
+                image_bytes = generate_image_gigachat(category_name, token)
                 text_to_publish = category_header + final_text + f"\n\n🔗 <a href='{news_id}'>Источник</a>"
                 
                 success = send_photo(text_to_publish, image_bytes) if image_bytes else send_text(text_to_publish)
