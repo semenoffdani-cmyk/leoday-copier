@@ -36,21 +36,18 @@ RSS_FEEDS = [
     'https://ria.ru/export/rss2/archive/index.xml'
 ]
 
-# 🚫 РАСШИРЕННЫЙ ЧЕРНЫЙ СПИСОК
 BLACKLIST_REGEX = re.compile(
     r'тренер|матч|гол|футбол|хоккей|спорт|чемпионат|кубок|олимпиад|клуб|игрок|трусов|'
     r'погиб|убий|дтп|пожар|мчс|полици|суд|арест|взрыв|стрельб|теракт|мошенник|кража|ограблен|'
     r'погод|ураган|наводнен|паводок|землетрясен|циклон|шторм|шоу-бизнес|знаменитост|'
     r'актер|певиц|развод|звезд|сериал|концерт|фестивал|инстаграм|тикток|блогер|скандал|'
     r'шок|сенсац|ужас|эксклюзив|гороскоп|астролог|рецепт|диет|похуден|отношени|коронавирус|'
-    r'вакцин|грипп|заболеваемост|эпидеми|симптом|мобилизац|войн|санкц|спецоперац|'
+    r'вакцин|грипп|заболеваемост|эпидем|симптом|мобилизац|войн|санкц|спецоперац|'
     r'трамп|байден|путин|госдум|депутат|оппозиц|митинг|лгбт|навальн|мигрант|религи|'
     r'церковь|бпла|атак|сбит|ракет|украин|дмитриев|воробьев|мид|нато|выборы|конгресс|'
-    r'сенат|парламент|уголовн|следствен|пострадав|жертв|эвакуац|обнал|отмыван|коррупц|взятк', 
-    re.IGNORECASE
+    r'сенат|парламент|уголовн|следствен|пострадав|жертв|эвакуац|обнал|отмыван|коррупц|взятк', re.IGNORECASE
 )
 
-# ✅ БЕЛЫЙ СПИСОК
 KEYWORDS_REGEX = re.compile(
     r'ставк|рубл|инфляц|цб |банк|акци|нефт|бюджет|налог|финанс|кредит|вклад|бирж|доллар|'
     r'евро|рынок|экономик|компан|убыт|прибыл|тариф|цен|рецесс|дефляц|профицит|дефицит|'
@@ -62,10 +59,9 @@ KEYWORDS_REGEX = re.compile(
     r'робот|цифров|гаджет|смартфон|openai|chatgpt|яндекс|сбер|айти|ит-|ии |чип|процессор|'
     r'софт|приложени|кибербезопасн|сервер|облак|импортозамещен|apple|tesla|microsoft|'
     r'google|amazon|meta|nvidia|samsung|intel|spacex|энергет|дизел|топлив|баррел|девальвац|'
-    r'ревальвац|хеджирован|фьючерс|опцион|трейдер|тайдан', re.IGNORECASE
+    r'ревальвац|хеджирован|фьючерс|опцион|трейдер|тайдан|правительств|кабинет|министр|ведомств', re.IGNORECASE
 )
 
-# Настройка сессии с автоматическими повторными попытками (Retry)
 SESSION = requests.Session()
 retries = Retry(total=3, backoff_factor=1, status_forcelist=[429, 500, 502, 503, 504])
 SESSION.mount('https://', HTTPAdapter(max_retries=retries))
@@ -161,8 +157,6 @@ def rewrite_text(text, token):
     try:
         url = "https://gigachat.devices.sberbank.ru/api/v1/chat/completions"
         headers = {'Content-Type': 'application/json', 'Authorization': f'Bearer {token}'}
-        
-        # УСИЛЕННЫЙ ПРОМПТ С ПРОВЕРКОЙ ГРАММАТИКИ И ПАДЕЖЕЙ
         payload = {
             "model": "GigaChat",
             "messages": [
@@ -184,17 +178,13 @@ def rewrite_text(text, token):
             ],
             "temperature": 0.3, "max_tokens": 1000
         }
-        
         response = SESSION.post(url, headers=headers, json=payload, verify=VERIFY_SSL, timeout=90)
         if response.status_code != 200: return None
             
         rewritten = response.json()['choices'][0]['message']['content'].strip()
-        
         if any(root in rewritten.lower() for root in ["генеративн", "облада", "мнени", "ограничен", "неправильн", "благодарим", "отказ"]):
             return None
-            
-        if len(rewritten) < 50:
-            return None
+        if len(rewritten) < 50: return None
             
         rewritten = re.sub(r'[*_`#]', '', rewritten)
         rewritten = fix_title_case(rewritten)
@@ -208,14 +198,37 @@ def generate_image_gigachat(news_text, token):
         url = "https://gigachat.devices.sberbank.ru/api/v1/chat/completions"
         headers = {'Content-Type': 'application/json', 'Authorization': f'Bearer {token}'}
         
+        # 🧠 РАСШИРЕННЫЕ ВИЗУАЛЬНЫЕ ТЕМЫ
+        # Теперь мы ловим не только точные слова, но и общий контекст
         theme = "Abstract 3D financial background, glowing blue and gold geometric shapes"
-        if re.search(r'нефт|газ|энергет|топлив', news_text, re.IGNORECASE): theme = "Abstract 3D oil drop, gas pipes, glowing blue and gold"
-        elif re.search(r'ипотек|дом|жкх|недвиж|квартир', news_text, re.IGNORECASE): theme = "Abstract 3D modern house, golden keys, blue background"
-        elif re.search(r'крипт|биткоин|блокчейн', news_text, re.IGNORECASE): theme = "Abstract 3D glowing bitcoin symbol, digital blocks"
-        elif re.search(r'самолет|авиа|жд|поезд|транспорт', news_text, re.IGNORECASE): theme = "Abstract 3D futuristic train, golden tracks"
-        elif re.search(r'банк|цб|кредит|вклад|сбербанк', news_text, re.IGNORECASE): theme = "Abstract 3D bank building with gold columns, coins"
-        elif re.search(r'нейросет|чип|робот|технолог|apple', news_text, re.IGNORECASE): theme = "Abstract 3D glowing microchip, robotic brain"
-        elif re.search(r'акци|бирж|индекс|рынок|ставк', news_text, re.IGNORECASE): theme = "Abstract 3D stock market chart with golden arrows"
+        
+        # Энергетика
+        if re.search(r'нефт|газ|энергет|топлив|дизел|бензин|баррел', news_text, re.IGNORECASE): 
+            theme = "Abstract 3D oil drop, gas pipes, glowing blue and gold"
+        # Госструктуры и правительство (как в вашем случае)
+        elif re.search(r'правительств|министр|кабинет|госдум|сенат|заседани|совещани', news_text, re.IGNORECASE):
+            theme = "Abstract 3D government building with columns, golden scales of justice, blue background"
+        # Банки и ЦБ
+        elif re.search(r'банк|цб|кредит|вклад|сбербанк|втб|тинькофф|регулятор', news_text, re.IGNORECASE): 
+            theme = "Abstract 3D bank building with gold columns, floating coins, blue background"
+        # Транспорт
+        elif re.search(r'самолет|авиа|жд|поезд|транспорт|логистик', news_text, re.IGNORECASE): 
+            theme = "Abstract 3D futuristic train or airplane, golden tracks, blue background"
+        # Недвижимость
+        elif re.search(r'ипотек|дом|жкх|недвиж|квартир|стройк', news_text, re.IGNORECASE): 
+            theme = "Abstract 3D modern house, golden keys, blue background"
+        # Крипта
+        elif re.search(r'крипт|биткоин|блокчейн|токен', news_text, re.IGNORECASE): 
+            theme = "Abstract 3D glowing bitcoin symbol, digital blocks, neon blue and gold"
+        # Технологии
+        elif re.search(r'нейросет|чип|робот|технолог|apple|openai|айти', news_text, re.IGNORECASE): 
+            theme = "Abstract 3D glowing microchip, robotic brain, neon blue and gold circuits"
+        # Рынки и акции
+        elif re.search(r'акци|бирж|индекс|рынок|ставк|трейд', news_text, re.IGNORECASE): 
+            theme = "Abstract 3D stock market chart with glowing golden arrows going up, blue background"
+        # Простые деньги
+        elif re.search(r'рубл|доллар|евро|деньг|цен|валют', news_text, re.IGNORECASE): 
+            theme = "Abstract 3D golden coins, floating banknotes, glowing blue arrows"
         
         payload = {
             "model": "GigaChat",
@@ -300,7 +313,7 @@ def main():
                 final_text = rewrite_text(f"{title}. {description}", token)
                 
                 if not final_text:
-                    print("⏭️ GigaChat отказался или текст пуст.")
+                    print("⏭️ GigaChat отказался.")
                     continue
                 
                 print("Генерация постера...")
