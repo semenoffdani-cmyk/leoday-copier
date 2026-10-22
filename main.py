@@ -91,10 +91,13 @@ def remove_garbage(text):
         if word.lower() in known_brands: return word
         return ''
     text = re.sub(r'\b[a-zA-Z]{4,}\b', replace_word, text)
+    # Жесткая зачистка известных багов
     text = re.sub(r'(?i)amburg\w*', '', text)
+    text = re.sub(r'(?i)domclick', '', text)
     return text
 
 def fix_caps(text):
+    """Превращает КАПС в нормальный регистр (с заглавной буквы)"""
     if text.isupper():
         text = text.capitalize()
         text = re.sub(r'\.\s*([а-яa-z])', lambda m: '. ' + m.group(1).upper(), text)
@@ -107,7 +110,7 @@ def clean_text(text):
     text = re.sub(r'\s+', ' ', text)
     text = re.sub(r'https?://\S+', '', text)
     text = remove_garbage(text) 
-    text = fix_caps(text) 
+    text = fix_caps(text)
     return html.escape(text).strip()
 
 def load_json(filepath):
@@ -197,7 +200,7 @@ def cosine_similarity(vec1, vec2):
     return dot_product / (norm1 * norm2)
 
 # =====================================================================
-# 🤖 GIGACHAT: РЕРАЙТ ТЕКСТА (ФИКС ОТСТУПОВ)
+# 🤖 GIGACHAT: РЕРАЙТ ТЕКСТА
 # =====================================================================
 def rewrite_text(text, token):
     if not token or not text: return None
@@ -230,27 +233,22 @@ def rewrite_text(text, token):
         if any(root in rewritten.lower() for root in ["генеративн", "облада", "мнени", "ограничен", "неправильн", "благодарим", "отказ"]): return None
         if len(rewritten) < 50: return None
         
-        # 1. Очищаем от мусорных символов
         rewritten = re.sub(r'[*_`#]', '', rewritten)
-        
-        # 2. Исправляем регистр
         rewritten = fix_title_case(rewritten)
         
-        # 3. Удаляем фразу "Банк России" в начале
+        # 🚨 УДАЛЯЕМ ФРАЗЫ-ПАРАЗИТЫ
+        rewritten = re.sub(r'(?i)банк россии не имеет отношения к данной информации\.?\s*', '', rewritten)
+        rewritten = re.sub(r'(?i)amburg\w*', '', rewritten)
+        rewritten = re.sub(r'(?i)domclick', '', rewritten)
+        
+        # Удаляем фразу "Банк России" в начале, если она висит без сказуемого
         rewritten = re.sub(r'(?i)^\s*банк россии\s*\n+', '', rewritten)
         
-        # 4. ЖЕСТКАЯ ЗАМЕНА ЗАГОЛОВКОВ
         rewritten = re.sub(r'(?i)что это значит\?', '<b>Что это значит?</b>', rewritten)
         rewritten = re.sub(r'(?i)что дальше\?', '<b>Что дальше?</b>', rewritten)
         
-        # 5. Принудительно ставим ДВА переноса строки перед каждым жирным заголовком
         rewritten = re.sub(r'\s*<b>', '\n\n<b>', rewritten)
-        
-        # 6. И ДВА переноса строки после закрывающего тега </b>
         rewritten = re.sub(r'</b>\s*', '</b>\n\n', rewritten)
-
-        # 🚨 7. УБИРАЕМ ЛЮБЫЕ ПРОБЕЛЫ В НАЧАЛЕ СТРОК (Убирает отступ слева)
-        rewritten = re.sub(r'(?m)^\s+', '', rewritten)
         
         return rewritten.strip()
     except Exception: return None
