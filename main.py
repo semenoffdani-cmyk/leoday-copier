@@ -22,12 +22,12 @@ GIGA_CLIENT_SECRET = os.environ.get('GIGACHAT_CLIENT_SECRET')
 HISTORY_FILE = 'history.json'
 
 # =====================================================================
-# 📡 ИСТОЧНИКИ (RSS ЛЕНТЫ ПЕРВОИСТОЧНИКОВ)
+# 📡 ИСТОЧНИКИ (RSS ЛЕНТЫ)
 # =====================================================================
 RSS_FEEDS = [
-    'https://rssexport.rbc.ru/rbcnews/news/30/full.rss',      # РБК (Экономика и все новости)
-    'https://www.cbr.ru/rss/RssNews',                         # Пресс-релизы ЦБ РФ
-    'https://ria.ru/export/rss2/archive/index.xml'            # РИА Новости
+    'https://rssexport.rbc.ru/rbcnews/news/30/full.rss',
+    'https://www.cbr.ru/rss/RssNews',
+    'https://ria.ru/export/rss2/archive/index.xml'
 ]
 
 # =====================================================================
@@ -36,16 +36,13 @@ RSS_FEEDS = [
 def clean_text(text):
     if not text:
         return ""
-    # Удаляем HTML-теги
     text = re.sub(r'<[^>]+>', '', text)
-    # Убираем лишние пробелы и переносы
     text = re.sub(r'\s+', ' ', text)
-    # Удаляем ссылки
     text = re.sub(r'https?://\S+', '', text)
     return text.strip()
 
 # =====================================================================
-# 🤖 GIGACHAT (АВТОРИЗАЦИЯ И РЕРАЙТ)
+# 🤖 GIGACHAT: АВТОРИЗАЦИЯ
 # =====================================================================
 def get_gigachat_token():
     if not GIGA_CLIENT_ID or not GIGA_CLIENT_SECRET:
@@ -72,6 +69,9 @@ def get_gigachat_token():
         print(f"Ошибка получения токена: {e}")
         return None
 
+# =====================================================================
+# ✍️ GIGACHAT: РЕРАЙТ ТЕКСТА
+# =====================================================================
 def rewrite_text(text, token):
     if not token or not text:
         return text
@@ -103,7 +103,6 @@ def rewrite_text(text, token):
         
         if 'choices' in result:
             rewritten = result['choices'][0]['message']['content'].strip()
-            # Финальная зачистка от случайных символов разметки
             return re.sub(r'[*_`#]', '', rewritten)
         return text
     except Exception as e:
@@ -111,9 +110,91 @@ def rewrite_text(text, token):
         return text
 
 # =====================================================================
-# ✈️ ПУБЛИКАЦИЯ В TELEGRAM
+# 🎨 GIGACHAT: ГЕНЕРАЦИЯ ИЗОБРАЖЕНИЯ (KANDINSKY)
 # =====================================================================
-def send_to_telegram(text):
+def generate_image(prompt, token):
+    if not token:
+        return None
+    try:
+        # 1. Отправляем запрос на генерацию
+        url = "https://gigachat.devices.sberbank.ru/api/v1/chat/completions"
+        headers = {
+            'Content-Type': 'application/json',
+            'Authorization': f'Bearer {token}'
+        }
+        
+        # Стилизуем промпт под наш канал (сине-золотые тона, минимализм)
+        full_prompt = (
+            f"Создай стильный минималистичный финансовый постер. "
+            f"Тема: {prompt}. "
+            f"Стиль: современный, деловой, сине-золотая цветовая гамма, графики, стрелки вверх/вниз, без текста."
+        )
+        
+        payload = {
+            "model": "GigaChat",
+            "messages": [{"role": "user", "content": full_prompt}],
+            "function_call": "auto" # Включаем режим генерации картинок
+        }
+        
+        response = requests.post(url, headers=headers, json=payload, verify=False, timeout=60)
+        result = response.json()
+        
+        # 2. Извлекаем ID файла из ответа
+        if 'choices' not in result:
+            return None
+            
+        content = result['choices'][0]['message']['content']
+        # Ищем <img src="file_id" ... />
+        match = re.search(r'<img src="([^"]+)"', content)
+        if not match:
+            print("Картинка не была сгенерирована в ответе.")
+            return None
+            
+        file_id = match.group(1)
+        
+        # 3. Скачиваем изображение
+        download_url = f"https://gigachat.devices.sberbank.ru/api/v1/files/{file_id}/content"
+        img_response = requests.get(download_url, headers={'Authorization': f'Bearer {token}'}, verify=False, timeout=30)
+        
+        if img_response.status_code == 200:
+            return img_response.content # Возвращаем бинарные данные картинки
+        else:
+            print(f"Ошибка скачивания картинки: {img_response.text}")
+            return None
+            
+    except Exception as e:
+        print(f"Ошибка генерации картинки: {e}")
+        return None
+
+# =====================================================================
+# ✈️ TELEGRAM: ОТПРАВКА ФОТО С ТЕКСТОМ
+# =====================================================================
+def send_photo_to_telegram(text, image_bytes):
+    url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendPhoto"
+    
+    payload = {
+        "chat_id": CHAT_ID,
+        "caption": text,
+        "parse_mode": "HTML"
+    }
+    
+    files = {
+        "photo": ("poster.jpg", image_bytes, "image/jpeg")
+    }
+    
+    try:
+        response = requests.post(url, data=payload, files=files, timeout=20)
+        if not response.ok:
+            print(f"Ошибка Telegram (фото): {response.text}")
+        return response.ok
+    except Exception as e:
+        print(f"Ошибка отправки фото: {e}")
+        return False
+
+# =====================================================================
+# ✈️ TELEGRAM: ОТПРАВКА ТЕКСТА (Резервный вариант)
+# =====================================================================
+def send_text_to_telegram(text):
     url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
     payload = {
         "chat_id": CHAT_ID,
@@ -124,14 +205,14 @@ def send_to_telegram(text):
     try:
         response = requests.post(url, json=payload, timeout=15)
         if not response.ok:
-            print(f"Ошибка Telegram: {response.text}")
+            print(f"Ошибка Telegram (текст): {response.text}")
         return response.ok
     except Exception as e:
-        print(f"Ошибка отправки в Telegram: {e}")
+        print(f"Ошибка отправки текста: {e}")
         return False
 
 # =====================================================================
-# 📦 РАБОТА С ИСТОРИЕЙ (ФАЙЛ history.json)
+# 📦 РАБОТА С ИСТОРИЕЙ
 # =====================================================================
 def load_history():
     if os.path.exists(HISTORY_FILE):
@@ -154,11 +235,10 @@ def main():
     token = get_gigachat_token()
     
     if not token:
-        print("ВНИМАНИЕ: Токен GigaChat не получен. Тексты будут без рерайта.")
+        print("ВНИМАНИЕ: Токен GigaChat не получен. Тексты будут без рерайта и картинок.")
     
     new_posts_count = 0
 
-    # 🔑 Слова, которые ОБЯЗАТЕЛЬНО должны быть в новости для нашего канала
     FINANCIAL_KEYWORDS = [
         'ставк', 'рубл', 'инфляц', 'цб', 'банк', 'акци', 'нефт', 'бюджет', 
         'налог', 'финанс', 'кредит', 'вклад', 'бирж', 'доллар', 'евро', 
@@ -169,46 +249,54 @@ def main():
         print(f"Проверка ленты: {feed_url}")
         feed = feedparser.parse(feed_url)
         
-        # Берем больше новостей (10), чтобы фильтру было из чего выбирать
         for entry in feed.entries[:10]:
             news_id = entry.link
             
             if news_id in history:
-                continue # Уже публиковали
+                continue
                 
             title = clean_text(entry.title)
             description = clean_text(getattr(entry, 'description', ''))
             
-            # Приводим к нижнему регистру для удобного поиска ключевых слов
             text_to_check = f"{title}. {description}".lower()
             
             if len(text_to_check) < 20:
                 continue
 
-            # 🚨 ФИЛЬТР: Проверяем, есть ли финансовые слова в тексте
+            # Фильтр по ключевым словам
             is_financial = any(keyword in text_to_check for keyword in FINANCIAL_KEYWORDS)
-            
             if not is_financial:
                 print(f"⏭️ Пропуск (не по теме): {title[:40]}...")
                 continue
 
             print(f"Новая новость: {title[:50]}...")
             
-            # 1. Рерайт через GigaChat
+            # 1. Рерайт текста
             final_text = rewrite_text(f"{title}. {description}", token)
             
-            # 2. Публикация
-            if send_to_telegram(final_text):
+            # 2. Генерация картинки (используем заголовок как основу для промпта)
+            print("Генерация постера...")
+            image_bytes = generate_image(title, token)
+            
+            # 3. Публикация
+            success = False
+            if image_bytes:
+                # Если картинка сгенерирована — отправляем фото с подписью
+                success = send_photo_to_telegram(final_text, image_bytes)
+            else:
+                # Если картинка не удалась — отправляем только текст
+                print("Картинка не сгенерирована. Отправляем только текст.")
+                success = send_text_to_telegram(final_text)
+            
+            if success:
                 print("✅ Опубликовано!")
                 history[news_id] = datetime.now().isoformat()
                 save_history(history)
                 new_posts_count += 1
-                # Пауза между постами, чтобы не спамить и не ловить лимиты
-                time.sleep(3)
+                time.sleep(5) # Увеличили паузу, так как генерация картинок требует времени
             else:
                 print("❌ Не удалось опубликовать.")
                 
-            # За один запуск публикуем максимум 3 поста, чтобы не заваливать канал
             if new_posts_count >= 3:
                 print("Достигнут лимит постов на этот запуск.")
                 return
