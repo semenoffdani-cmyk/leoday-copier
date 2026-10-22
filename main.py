@@ -250,12 +250,14 @@ def rewrite_text(text, token, source_url):
             print("DEBUG: GigaChat выдал слишком короткий текст.")
             return None
         
+        # 🚨 ЖЕСТКАЯ ОЧИСТКА ОТ ПУСТЫХ СТРОК И ПРОБЕЛОВ
         paragraphs = [p.strip() for p in raw_rewritten.split('\n') if p.strip()]
         
         if len(paragraphs) < 3:
             print(f"DEBUG: GigaChat вернул не 3 абзаца (а {len(paragraphs)}).")
             return None
             
+        # 🚨 ЖЕСТКОЕ ФОРМАТИРОВАНИЕ (Код сам ставит теги и отступы)
         final_text = (
             f"{paragraphs[0]}\n\n"
             f"<b>Что это значит?</b>\n\n"
@@ -270,7 +272,7 @@ def rewrite_text(text, token, source_url):
         return None
 
 # =====================================================================
-# 🎨 GIGACHAT: УЛУЧШЕННАЯ ГЕНЕРАЦИЯ КАРТИНОК
+# 🎨 GIGACHAT: ГЕНЕРАЦИЯ КАРТИНОК (С ЗАЩИТОЙ ОТ ТЕКСТА)
 # =====================================================================
 def generate_image_gigachat(news_text, token):
     if not token: return None
@@ -278,15 +280,14 @@ def generate_image_gigachat(news_text, token):
         url = "https://gigachat.devices.sberbank.ru/api/v1/chat/completions"
         headers = {'Content-Type': 'application/json', 'Authorization': f'Bearer {token}'}
         
-        # Берем первые 150 символов текста для контекста (чтобы картинка была про новость)
         short_text = news_text[:150].replace('\n', ' ')
         
-        base_style = "Cinematic lighting, Octane render, 8k resolution, minimalist corporate style, deep navy blue and metallic gold colors, highly detailed, no text, no letters, no numbers."
+        base_style = "Cinematic lighting, Octane render, 8k resolution, minimalist corporate style, deep navy blue and metallic gold colors, highly detailed."
         
-        # Формируем умный промпт для Kandinsky
+        # Усиленный запрет на текст и буквы
         prompt = (
             f"Create a conceptual 3D illustration that metaphorically represents this news: '{short_text}'. "
-            f"Use {base_style}."
+            f"Use {base_style}. NO TEXT, NO LETTERS, NO ALPHABET, NO WORDS, NO NUMBERS, NO LOGOS."
         )
 
         payload = {
