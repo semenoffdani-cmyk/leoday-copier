@@ -482,4 +482,9 @@ def main():
                     new_posts_count += 1
                     time.sleep(4)
             except Exception as e:
-                print(f
+                print(f"DEBUG: Ошибка при обработке: {e}")
+                continue
+            if new_posts_count >= 1: return
+
+if __name__ == '__main__':
+    main()
