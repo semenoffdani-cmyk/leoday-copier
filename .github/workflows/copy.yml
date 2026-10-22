@@ -2,11 +2,11 @@ name: Copy Financial Posts RSS
 
 on:
   schedule:
-    # Смещаем минуты: 2, 7, 12, 17... вместо 0, 5, 10. Это обходит пиковую нагрузку.
+    # Запуск по расписанию GitHub (страховка)
     - cron: '2,7,12,17,22,27,32,37,42,47,52,57 * * * *'
   workflow_dispatch:
 
-# Предотвращает наложение запусков друг на друга (защита от конфликтов при git push)
+# Защита от одновременных запусков
 concurrency:
   group: ${{ github.workflow }}
   cancel-in-progress: true
@@ -28,6 +28,10 @@ jobs:
 
       - name: Install dependencies
         run: pip install -r requirements.txt
+
+      # 👇 НОВЫЙ ШАГ: Скачиваем официальный сертификат Минцифры для безопасного SSL
+      - name: Download Russian Trusted Root CA
+        run: wget https://gu-st.ru/content/Other/doc/russiantrustedca.pem
 
       - name: Run copier
         env:
