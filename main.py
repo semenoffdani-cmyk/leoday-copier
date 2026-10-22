@@ -5,6 +5,7 @@ import time
 import html
 import uuid
 import base64
+import math
 import requests
 import feedparser
 import urllib3
@@ -29,6 +30,11 @@ if not BOT_TOKEN or not CHAT_ID:
 CERT_PATH = 'russiantrustedca.pem'
 VERIFY_SSL = CERT_PATH if os.path.exists(CERT_PATH) else True
 HISTORY_FILE = 'history.json'
+EMBEDDINGS_FILE = 'embeddings.json' # Файл для хранения векторов
+
+# Порог семантического сходства (0.85 = 85% схожести)
+SIMILARITY_THRESHOLD = 0.85
+MAX_EMBEDDINGS_HISTORY = 50 # Храним векторы последних 50 новостей
 
 RSS_FEEDS = [
     'https://rssexport.rbc.ru/rbcnews/news/30/full.rss',
@@ -36,20 +42,19 @@ RSS_FEEDS = [
     'https://ria.ru/export/rss2/archive/index.xml'
 ]
 
-# 🚫 ЧЕРНЫЙ СПИСОК (Жесткая блокировка всего, что не по теме)
+# Регулярные выражения для фильтрации (остаются без изменений)
 BLACKLIST_REGEX = re.compile(
     r'тренер|матч|гол|футбол|хоккей|спорт|чемпионат|кубок|олимпиад|клуб|игрок|трусов|'
     r'погиб|убий|дтп|пожар|мчс|полици|суд|арест|взрыв|стрельб|теракт|мошенник|кража|ограблен|'
     r'погод|ураган|наводнен|паводок|землетрясен|циклон|шторм|шоу-бизнес|знаменитост|'
     r'актер|певиц|развод|звезд|сериал|концерт|фестивал|инстаграм|тикток|блогер|скандал|'
     r'шок|сенсац|ужас|эксклюзив|гороскоп|астролог|рецепт|диет|похуден|отношени|коронавирус|'
-    r'вакцин|грипп|заболеваемост|эпидеми|симптом|мобилизац|войн|санкц|спецоперац|'
+    r'вакцин|грипп|заболеваемост|эпидем|симптом|мобилизац|войн|санкц|спецоперац|'
     r'трамп|байден|путин|госдум|депутат|оппозиц|митинг|лгбт|навальн|мигрант|религи|'
     r'церковь|бпла|атак|сбит|ракет|украин|дмитриев|воробьев|мид|нато|выборы|конгресс|'
     r'сенат|парламент|уголовн|следствен|пострадав|жертв|эвакуац|обнал|отмыван|коррупц|взятк', re.IGNORECASE
 )
 
-# ✅ БЕЛЫЙ СПИСОК (Глобальный триггер: если есть хоть одно слово, новость идет в работу)
 KEYWORDS_REGEX = re.compile(
     r'ставк|рубл|инфляц|цб |банк|акци|нефт|бюджет|налог|финанс|кредит|вклад|бирж|доллар|'
     r'евро|рынок|экономик|компан|убыт|прибыл|тариф|цен|рецесс|дефляц|профицит|дефицит|'
@@ -66,7 +71,6 @@ KEYWORDS_REGEX = re.compile(
     r'фарм|медицин|труд|безработ|персонал|кадр|миграц|логистик|транспорт|стройк|недвижим', re.IGNORECASE
 )
 
-# Настройка сессии с автоматическими повторными попытками
 SESSION = requests.Session()
 retries = Retry(total=3, backoff_factor=1, status_forcelist=[429, 500, 502, 503, 504])
 SESSION.mount('https://', HTTPAdapter(max_retries=retries))
@@ -82,18 +86,18 @@ def clean_text(text):
     text = re.sub(r'https?://\S+', '', text)
     return html.escape(text).strip()
 
-def load_history():
-    if os.path.exists(HISTORY_FILE):
+def load_json(filepath):
+    if os.path.exists(filepath):
         try:
-            with open(HISTORY_FILE, 'r', encoding='utf-8') as f: return json.load(f)
+            with open(filepath, 'r', encoding='utf-8') as f: return json.load(f)
         except Exception: return {}
     return {}
 
-def save_history(history):
+def save_json(data, filepath):
     try:
-        if len(history) > 2000: history = dict(list(history.items())[-2000:])
-        with open(HISTORY_FILE, 'w', encoding='utf-8') as f: json.dump(history, f, ensure_ascii=False, indent=2)
-    except Exception as e: print(f"Ошибка истории: {e}")
+        if len(data) > 2000: data = dict(list(data.items())[-2000:])
+        with open(filepath, 'w', encoding='utf-8') as f: json.dump(data, f, ensure_ascii=False, indent=2)
+    except Exception as e: print(f"Ошибка сохранения {filepath}: {e}")
 
 def fix_title_case(text):
     lines = text.split('\n')
@@ -121,23 +125,18 @@ def fix_title_case(text):
 # 🏷️ УМНАЯ СИСТЕМА РУБРИК
 # =====================================================================
 def detect_category(text):
-    # Энергетика и сырье
-    if re.search(r'нефт|газ|энергет|топлив|дизел|бензин|баррел|уголь|электростанц|опек', text, re.IGNORECASE):
+    if re.search(r'нефт|газ|энергет|топлив|дизел|бензин|баррел|уголь|опек', text, re.IGNORECASE):
         return "🛢️ <b>ЭНЕРГЕТИКА И СЫРЬЕ</b>\n\n"
-    # Технологии и ИИ
     elif re.search(r'нейросет|искусственн|чип|робот|технолог|apple|openai|смартфон|гаджет|ит-|айти|кибербезопасн|\bии\b|софт|приложени', text, re.IGNORECASE):
         return "🤖 <b>ТЕХНОЛОГИИ И ИИ</b>\n\n"
-    # Личные деньги (банки, вклады, ипотека)
     elif re.search(r'вклад|кредит|ипотек|зарплат|пенси|жкх|рубл|доллар|евро|сбербанк|втб|тинькофф|банк|страхов|маткапитал', text, re.IGNORECASE):
         return "💸 <b>ЛИЧНЫЕ ДЕНЬГИ</b>\n\n"
-    # Бизнес и промышленность
     elif re.search(r'промышленн|завод|производств|фабрик|сельхоз|агро|туризм|отел|ритейл|маркетплейс|бизнес|компан', text, re.IGNORECASE):
         return "🏭 <b>БИЗНЕС И ПРОМЫШЛЕННОСТЬ</b>\n\n"
-    # Макроэкономика и правительство (по умолчанию)
     return "📊 <b>ЭКОНОМИКА</b>\n\n"
 
 # =====================================================================
-# 🤖 GIGACHAT
+# 🤖 GIGACHAT: АВТОРИЗАЦИЯ И ГЕНЕРАЦИЯ
 # =====================================================================
 def get_gigachat_token():
     if not GIGA_CLIENT_ID or not GIGA_CLIENT_SECRET: return None
@@ -149,6 +148,28 @@ def get_gigachat_token():
         response = SESSION.post(url, headers=headers, data='scope=GIGACHAT_API_PERS', verify=VERIFY_SSL, timeout=30)
         return response.json().get('access_token') if response.status_code == 200 else None
     except Exception: return None
+
+def get_embedding(text, token):
+    """Получает векторное представление текста через GigaChat API."""
+    if not token or not text: return None
+    try:
+        url = "https://gigachat.devices.sberbank.ru/api/v1/embeddings"
+        headers = {'Content-Type': 'application/json', 'Authorization': f'Bearer {token}'}
+        payload = {"model": "Embeddings", "input": [text]}
+        response = SESSION.post(url, headers=headers, json=payload, verify=VERIFY_SSL, timeout=30)
+        if response.status_code == 200:
+            return response.json()['data'][0]['embedding']
+        return None
+    except Exception: return None
+
+def cosine_similarity(vec1, vec2):
+    """Вычисляет косинусное сходство между двумя векторами."""
+    if not vec1 or not vec2: return 0.0
+    dot_product = sum(a * b for a, b in zip(vec1, vec2))
+    norm1 = math.sqrt(sum(a * a for a in vec1))
+    norm2 = math.sqrt(sum(b * b for b in vec2))
+    if norm1 == 0 or norm2 == 0: return 0.0
+    return dot_product / (norm1 * norm2)
 
 def rewrite_text(text, token):
     if not token or not text: return None
@@ -190,41 +211,23 @@ def generate_image_gigachat(news_text, token):
         url = "https://gigachat.devices.sberbank.ru/api/v1/chat/completions"
         headers = {'Content-Type': 'application/json', 'Authorization': f'Bearer {token}'}
         
-        # 🧠 МАКСИМАЛЬНО РАСШИРЕННАЯ КАРТА ВИЗУАЛЬНЫХ ТЕМ
         theme = "Abstract 3D financial background, glowing blue and gold geometric shapes"
-        
-        if re.search(r'нефт|газ|энергет|топлив|дизел|бензин|баррел|уголь|опек', news_text, re.IGNORECASE): 
-            theme = "Abstract 3D oil drop, gas pipes, energy lines, blue and gold"
-        elif re.search(r'промышленн|завод|производств|фабрик|станок', news_text, re.IGNORECASE):
-            theme = "Abstract 3D gears, robotic arm, industrial factory, blue and gold"
-        elif re.search(r'сельхоз|агро|урожай|ферм|зерно', news_text, re.IGNORECASE):
-            theme = "Abstract 3D golden wheat ears, leaves, agriculture, blue and gold"
-        elif re.search(r'туризм|отел|курорт|путешеств', news_text, re.IGNORECASE):
-            theme = "Abstract 3D airplane, suitcase, globe, travel, blue and gold"
-        elif re.search(r'экологи|esg|зелен|выброс|углерод', news_text, re.IGNORECASE):
-            theme = "Abstract 3D green leaf, eco-friendly energy, blue and gold"
-        elif re.search(r'фарм|медицин|лекарств|клиник', news_text, re.IGNORECASE):
-            theme = "Abstract 3D medical cross, molecule, pill, blue and gold"
-        elif re.search(r'труд|безработ|персонал|кадр|миграц', news_text, re.IGNORECASE):
-            theme = "Abstract 3D silhouettes of people, briefcase, career graph, blue and gold"
-        elif re.search(r'правительств|министр|кабинет|госдум|заседани|совещани', news_text, re.IGNORECASE):
-            theme = "Abstract 3D government building with columns, golden scales, blue background"
-        elif re.search(r'банк|цб|кредит|вклад|сбербанк|втб|тинькофф|регулятор', news_text, re.IGNORECASE): 
-            theme = "Abstract 3D bank building with gold columns, floating coins, blue background"
-        elif re.search(r'самолет|авиа|жд|поезд|транспорт|логистик', news_text, re.IGNORECASE): 
-            theme = "Abstract 3D futuristic train or airplane, golden tracks, blue background"
-        elif re.search(r'ипотек|дом|жкх|недвиж|квартир|стройк', news_text, re.IGNORECASE): 
-            theme = "Abstract 3D modern house, golden keys, blue background"
-        elif re.search(r'крипт|биткоин|блокчейн|токен', news_text, re.IGNORECASE): 
-            theme = "Abstract 3D glowing bitcoin symbol, digital blocks, neon blue and gold"
-        elif re.search(r'нейросет|чип|робот|технолог|apple|openai|айти', news_text, re.IGNORECASE): 
-            theme = "Abstract 3D glowing microchip, robotic brain, neon blue and gold circuits"
-        elif re.search(r'акци|бирж|индекс|рынок|ставк|трейд', news_text, re.IGNORECASE): 
-            theme = "Abstract 3D stock market chart with glowing golden arrows going up, blue background"
-        elif re.search(r'рубл|доллар|евро|деньг|цен|валют', news_text, re.IGNORECASE): 
-            theme = "Abstract 3D golden coins, floating banknotes, glowing blue arrows"
-        elif re.search(r'ритейл|маркетплейс|wildberries|ozon|магазин', news_text, re.IGNORECASE):
-            theme = "Abstract 3D shopping cart, shopping bags, retail, blue and gold"
+        if re.search(r'нефт|газ|энергет|топлив|дизел|бензин|баррел|уголь|опек', news_text, re.IGNORECASE): theme = "Abstract 3D oil drop, gas pipes, energy lines, blue and gold"
+        elif re.search(r'промышленн|завод|производств|фабрик|станок', news_text, re.IGNORECASE): theme = "Abstract 3D gears, robotic arm, industrial factory, blue and gold"
+        elif re.search(r'сельхоз|агро|урожай|ферм|зерно', news_text, re.IGNORECASE): theme = "Abstract 3D golden wheat ears, leaves, agriculture, blue and gold"
+        elif re.search(r'туризм|отел|курорт|путешеств', news_text, re.IGNORECASE): theme = "Abstract 3D airplane, suitcase, globe, travel, blue and gold"
+        elif re.search(r'экологи|esg|зелен|выброс|углерод', news_text, re.IGNORECASE): theme = "Abstract 3D green leaf, eco-friendly energy, blue and gold"
+        elif re.search(r'фарм|медицин|лекарств|клиник', news_text, re.IGNORECASE): theme = "Abstract 3D medical cross, molecule, pill, blue and gold"
+        elif re.search(r'труд|безработ|персонал|кадр|миграц', news_text, re.IGNORECASE): theme = "Abstract 3D silhouettes of people, briefcase, career graph, blue and gold"
+        elif re.search(r'правительств|министр|кабинет|госдум|заседани|совещани', news_text, re.IGNORECASE): theme = "Abstract 3D government building with columns, golden scales, blue background"
+        elif re.search(r'банк|цб|кредит|вклад|сбербанк|втб|тинькофф|регулятор', news_text, re.IGNORECASE): theme = "Abstract 3D bank building with gold columns, floating coins, blue background"
+        elif re.search(r'самолет|авиа|жд|поезд|транспорт|логистик', news_text, re.IGNORECASE): theme = "Abstract 3D futuristic train or airplane, golden tracks, blue background"
+        elif re.search(r'ипотек|дом|жкх|недвиж|квартир|стройк', news_text, re.IGNORECASE): theme = "Abstract 3D modern house, golden keys, blue background"
+        elif re.search(r'крипт|биткоин|блокчейн|токен', news_text, re.IGNORECASE): theme = "Abstract 3D glowing bitcoin symbol, digital blocks, neon blue and gold"
+        elif re.search(r'нейросет|чип|робот|технолог|apple|openai|айти', news_text, re.IGNORECASE): theme = "Abstract 3D glowing microchip, robotic brain, neon blue and gold circuits"
+        elif re.search(r'акци|бирж|индекс|рынок|ставк|трейд', news_text, re.IGNORECASE): theme = "Abstract 3D stock market chart with glowing golden arrows going up, blue background"
+        elif re.search(r'рубл|доллар|евро|деньг|цен|валют', news_text, re.IGNORECASE): theme = "Abstract 3D golden coins, floating banknotes, glowing blue arrows"
+        elif re.search(r'ритейл|маркетплейс|wildberries|ozon|магазин', news_text, re.IGNORECASE): theme = "Abstract 3D shopping cart, shopping bags, retail, blue and gold"
         
         payload = {
             "model": "GigaChat",
@@ -267,7 +270,10 @@ def send_text(text):
 # 🚀 MAIN
 # =====================================================================
 def main():
-    history = load_history()
+    history = load_json(HISTORY_FILE)
+    # Загружаем сохраненные эмбеддинги
+    embeddings_history = load_json(EMBEDDINGS_FILE)
+    
     token = get_gigachat_token()
     if not token: return
     new_posts_count = 0
@@ -291,10 +297,42 @@ def main():
 
                 print(f"🔥 Новость: {title[:40]}...")
                 
+                # --- 1. СЕМАНТИЧЕСКАЯ ДЕДУПЛИКАЦИЯ ---
+                news_embedding = get_embedding(title, token)
+                if news_embedding:
+                    is_duplicate = False
+                    for old_url, old_emb in embeddings_history.items():
+                        similarity = cosine_similarity(news_embedding, old_emb)
+                        if similarity > SIMILARITY_THRESHOLD:
+                            print(f"⏭️ Пропуск (семантический дубль с {old_url[:30]}...). Сходство: {similarity:.2f}")
+                            is_duplicate = True
+                            break
+                    if is_duplicate: continue
+                else:
+                    print("⚠️ Не удалось получить эмбеддинг, пропускаем проверку на дубли.")
+
+                # --- 2. ФАКТЧЕКИНГ ЦИФР ---
+                # Извлекаем проценты из оригинала
+                original_percents = set(re.findall(r'(\d+(?:[.,]\d+)?)\s*%', text_to_check))
+
                 category_header = detect_category(text_to_check)
                 final_text = rewrite_text(f"{title}. {description}", token)
                 if not final_text: continue
                 
+                # Проверяем проценты в ответе ИИ
+                if original_percents:
+                    rewritten_lower = final_text.lower()
+                    for p in original_percents:
+                        # Ищем число в ответе (может быть с точкой или запятой)
+                        p_variants = [p, p.replace(',', '.'), p.replace('.', ',')]
+                        if not any(variant in rewritten_lower for variant in p_variants):
+                            print(f"⏭️ Пропуск (фактчекинг): число {p}% из оригинала не найдено в ответе ИИ.")
+                            # Можно добавить логику повторного запроса к GigaChat
+                            final_text = None
+                            break
+                
+                if not final_text: continue
+
                 image_bytes = generate_image_gigachat(text_to_check, token)
                 text_to_publish = category_header + final_text + f"\n\n🔗 <a href='{news_id}'>Источник</a>"
                 
@@ -303,10 +341,21 @@ def main():
                 if success:
                     print("✅ Опубликовано!")
                     history[news_id] = datetime.now().isoformat()
-                    save_history(history)
+                    save_json(history, HISTORY_FILE)
+                    
+                    # Сохраняем новый эмбеддинг
+                    if news_embedding:
+                        embeddings_history[news_id] = news_embedding
+                        # Ограничиваем историю эмбеддингов
+                        if len(embeddings_history) > MAX_EMBEDDINGS_HISTORY:
+                            oldest_key = next(iter(embeddings_history))
+                            del embeddings_history[oldest_key]
+                        save_json(embeddings_history, EMBEDDINGS_FILE)
+
                     new_posts_count += 1
                     time.sleep(4)
             except Exception as e:
+                print(f"Ошибка: {e}")
                 continue
             if new_posts_count >= 1: return
 
