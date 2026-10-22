@@ -30,11 +30,10 @@ if not BOT_TOKEN or not CHAT_ID:
 CERT_PATH = 'russiantrustedca.pem'
 VERIFY_SSL = CERT_PATH if os.path.exists(CERT_PATH) else True
 HISTORY_FILE = 'history.json'
-EMBEDDINGS_FILE = 'embeddings.json' # Файл для хранения векторов
+EMBEDDINGS_FILE = 'embeddings.json'
 
-# Порог семантического сходства (0.85 = 85% схожести)
 SIMILARITY_THRESHOLD = 0.85
-MAX_EMBEDDINGS_HISTORY = 50 # Храним векторы последних 50 новостей
+MAX_EMBEDDINGS_HISTORY = 50 
 
 RSS_FEEDS = [
     'https://rssexport.rbc.ru/rbcnews/news/30/full.rss',
@@ -42,19 +41,20 @@ RSS_FEEDS = [
     'https://ria.ru/export/rss2/archive/index.xml'
 ]
 
-# Регулярные выражения для фильтрации (остаются без изменений)
+# 🚫 ЧЕРНЫЙ СПИСОК
 BLACKLIST_REGEX = re.compile(
     r'тренер|матч|гол|футбол|хоккей|спорт|чемпионат|кубок|олимпиад|клуб|игрок|трусов|'
     r'погиб|убий|дтп|пожар|мчс|полици|суд|арест|взрыв|стрельб|теракт|мошенник|кража|ограблен|'
     r'погод|ураган|наводнен|паводок|землетрясен|циклон|шторм|шоу-бизнес|знаменитост|'
     r'актер|певиц|развод|звезд|сериал|концерт|фестивал|инстаграм|тикток|блогер|скандал|'
     r'шок|сенсац|ужас|эксклюзив|гороскоп|астролог|рецепт|диет|похуден|отношени|коронавирус|'
-    r'вакцин|грипп|заболеваемост|эпидем|симптом|мобилизац|войн|санкц|спецоперац|'
+    r'вакцин|грипп|заболеваемост|эпидеми|симптом|мобилизац|войн|санкц|спецоперац|'
     r'трамп|байден|путин|госдум|депутат|оппозиц|митинг|лгбт|навальн|мигрант|религи|'
     r'церковь|бпла|атак|сбит|ракет|украин|дмитриев|воробьев|мид|нато|выборы|конгресс|'
     r'сенат|парламент|уголовн|следствен|пострадав|жертв|эвакуац|обнал|отмыван|коррупц|взятк', re.IGNORECASE
 )
 
+# ✅ БЕЛЫЙ СПИСОК
 KEYWORDS_REGEX = re.compile(
     r'ставк|рубл|инфляц|цб |банк|акци|нефт|бюджет|налог|финанс|кредит|вклад|бирж|доллар|'
     r'евро|рынок|экономик|компан|убыт|прибыл|тариф|цен|рецесс|дефляц|профицит|дефицит|'
@@ -78,12 +78,26 @@ SESSION.mount('https://', HTTPAdapter(max_retries=retries))
 # =====================================================================
 # 🧹 ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ
 # =====================================================================
+def remove_garbage(text):
+    """Удаляет случайные английские обрывки (типа 'amburg'), но оставляет известные бренды."""
+    known_brands = {'apple', 'tesla', 'microsoft', 'google', 'amazon', 'meta', 'nvidia', 'samsung', 'intel', 'spacex', 'openai', 'chatgpt'}
+    
+    def replace_word(match):
+        word = match.group(0)
+        if word.lower() in known_brands:
+            return word
+        return ''
+    
+    # Ищем английские слова длиной от 4 букв и заменяем их
+    return re.sub(r'\b[a-zA-Z]{4,}\b', replace_word, text)
+
 def clean_text(text):
     if not text: return ""
     text = re.sub(r'<[^>]+>', '', text)
     text = html.unescape(text)
     text = re.sub(r'\s+', ' ', text)
     text = re.sub(r'https?://\S+', '', text)
+    text = remove_garbage(text) # Применяем умную очистку
     return html.escape(text).strip()
 
 def load_json(filepath):
@@ -95,9 +109,12 @@ def load_json(filepath):
 
 def save_json(data, filepath):
     try:
-        if len(data) > 2000: data = dict(list(data.items())[-2000:])
-        with open(filepath, 'w', encoding='utf-8') as f: json.dump(data, f, ensure_ascii=False, indent=2)
-    except Exception as e: print(f"Ошибка сохранения {filepath}: {e}")
+        if filepath == HISTORY_FILE and len(data) > 2000: 
+            data = dict(list(data.items())[-2000:])
+        with open(filepath, 'w', encoding='utf-8') as f: 
+            json.dump(data, f, ensure_ascii=False, indent=2)
+    except Exception as e: 
+        print(f"Ошибка сохранения {filepath}: {e}")
 
 def fix_title_case(text):
     lines = text.split('\n')
@@ -125,18 +142,19 @@ def fix_title_case(text):
 # 🏷️ УМНАЯ СИСТЕМА РУБРИК
 # =====================================================================
 def detect_category(text):
-    if re.search(r'нефт|газ|энергет|топлив|дизел|бензин|баррел|уголь|опек', text, re.IGNORECASE):
+    # Приоритет: Бизнес/Промышленность > Энергетика > Личные деньги > Технологии > Экономика
+    if re.search(r'промышленн|завод|станкостроен|производств|фабрик|сельхоз|агро|туризм|отел|ритейл|маркетплейс|бизнес|компан|предпринимат', text, re.IGNORECASE):
+        return "🏭 <b>БИЗНЕС И ПРОМЫШЛЕННОСТЬ</b>\n\n"
+    elif re.search(r'нефт|газ|энергет|топлив|дизел|бензин|баррел|уголь|опек', text, re.IGNORECASE):
         return "🛢️ <b>ЭНЕРГЕТИКА И СЫРЬЕ</b>\n\n"
-    elif re.search(r'нейросет|искусственн|чип|робот|технолог|apple|openai|смартфон|гаджет|ит-|айти|кибербезопасн|\bии\b|софт|приложени', text, re.IGNORECASE):
-        return "🤖 <b>ТЕХНОЛОГИИ И ИИ</b>\n\n"
     elif re.search(r'вклад|кредит|ипотек|зарплат|пенси|жкх|рубл|доллар|евро|сбербанк|втб|тинькофф|банк|страхов|маткапитал', text, re.IGNORECASE):
         return "💸 <b>ЛИЧНЫЕ ДЕНЬГИ</b>\n\n"
-    elif re.search(r'промышленн|завод|производств|фабрик|сельхоз|агро|туризм|отел|ритейл|маркетплейс|бизнес|компан', text, re.IGNORECASE):
-        return "🏭 <b>БИЗНЕС И ПРОМЫШЛЕННОСТЬ</b>\n\n"
+    elif re.search(r'нейросет|искусственн|чип|робот|технолог|apple|openai|смартфон|гаджет|ит-|айти|кибербезопасн|\bии\b|софт|приложени', text, re.IGNORECASE):
+        return "🤖 <b>ТЕХНОЛОГИИ И ИИ</b>\n\n"
     return "📊 <b>ЭКОНОМИКА</b>\n\n"
 
 # =====================================================================
-# 🤖 GIGACHAT: АВТОРИЗАЦИЯ И ГЕНЕРАЦИЯ
+# 🤖 GIGACHAT: АВТОРИЗАЦИЯ, ВЕКТОРЫ И ГЕНЕРАЦИЯ
 # =====================================================================
 def get_gigachat_token():
     if not GIGA_CLIENT_ID or not GIGA_CLIENT_SECRET: return None
@@ -150,7 +168,6 @@ def get_gigachat_token():
     except Exception: return None
 
 def get_embedding(text, token):
-    """Получает векторное представление текста через GigaChat API."""
     if not token or not text: return None
     try:
         url = "https://gigachat.devices.sberbank.ru/api/v1/embeddings"
@@ -163,7 +180,6 @@ def get_embedding(text, token):
     except Exception: return None
 
 def cosine_similarity(vec1, vec2):
-    """Вычисляет косинусное сходство между двумя векторами."""
     if not vec1 or not vec2: return 0.0
     dot_product = sum(a * b for a, b in zip(vec1, vec2))
     norm1 = math.sqrt(sum(a * a for a in vec1))
@@ -212,8 +228,8 @@ def generate_image_gigachat(news_text, token):
         headers = {'Content-Type': 'application/json', 'Authorization': f'Bearer {token}'}
         
         theme = "Abstract 3D financial background, glowing blue and gold geometric shapes"
-        if re.search(r'нефт|газ|энергет|топлив|дизел|бензин|баррел|уголь|опек', news_text, re.IGNORECASE): theme = "Abstract 3D oil drop, gas pipes, energy lines, blue and gold"
-        elif re.search(r'промышленн|завод|производств|фабрик|станок', news_text, re.IGNORECASE): theme = "Abstract 3D gears, robotic arm, industrial factory, blue and gold"
+        if re.search(r'промышленн|завод|станкостроен|производств|фабрик|станок', news_text, re.IGNORECASE): theme = "Abstract 3D gears, robotic arm, industrial factory, blue and gold"
+        elif re.search(r'нефт|газ|энергет|топлив|дизел|бензин|баррел|уголь|опек', news_text, re.IGNORECASE): theme = "Abstract 3D oil drop, gas pipes, energy lines, blue and gold"
         elif re.search(r'сельхоз|агро|урожай|ферм|зерно', news_text, re.IGNORECASE): theme = "Abstract 3D golden wheat ears, leaves, agriculture, blue and gold"
         elif re.search(r'туризм|отел|курорт|путешеств', news_text, re.IGNORECASE): theme = "Abstract 3D airplane, suitcase, globe, travel, blue and gold"
         elif re.search(r'экологи|esg|зелен|выброс|углерод', news_text, re.IGNORECASE): theme = "Abstract 3D green leaf, eco-friendly energy, blue and gold"
@@ -271,7 +287,6 @@ def send_text(text):
 # =====================================================================
 def main():
     history = load_json(HISTORY_FILE)
-    # Загружаем сохраненные эмбеддинги
     embeddings_history = load_json(EMBEDDINGS_FILE)
     
     token = get_gigachat_token()
@@ -308,26 +323,20 @@ def main():
                             is_duplicate = True
                             break
                     if is_duplicate: continue
-                else:
-                    print("⚠️ Не удалось получить эмбеддинг, пропускаем проверку на дубли.")
 
                 # --- 2. ФАКТЧЕКИНГ ЦИФР ---
-                # Извлекаем проценты из оригинала
                 original_percents = set(re.findall(r'(\d+(?:[.,]\d+)?)\s*%', text_to_check))
 
                 category_header = detect_category(text_to_check)
                 final_text = rewrite_text(f"{title}. {description}", token)
                 if not final_text: continue
                 
-                # Проверяем проценты в ответе ИИ
                 if original_percents:
                     rewritten_lower = final_text.lower()
                     for p in original_percents:
-                        # Ищем число в ответе (может быть с точкой или запятой)
                         p_variants = [p, p.replace(',', '.'), p.replace('.', ',')]
                         if not any(variant in rewritten_lower for variant in p_variants):
-                            print(f"⏭️ Пропуск (фактчекинг): число {p}% из оригинала не найдено в ответе ИИ.")
-                            # Можно добавить логику повторного запроса к GigaChat
+                            print(f"⏭️ Пропуск (фактчекинг): число {p}% не найдено.")
                             final_text = None
                             break
                 
@@ -343,10 +352,8 @@ def main():
                     history[news_id] = datetime.now().isoformat()
                     save_json(history, HISTORY_FILE)
                     
-                    # Сохраняем новый эмбеддинг
                     if news_embedding:
                         embeddings_history[news_id] = news_embedding
-                        # Ограничиваем историю эмбеддингов
                         if len(embeddings_history) > MAX_EMBEDDINGS_HISTORY:
                             oldest_key = next(iter(embeddings_history))
                             del embeddings_history[oldest_key]
