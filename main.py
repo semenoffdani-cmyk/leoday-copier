@@ -207,7 +207,7 @@ def cosine_similarity(vec1, vec2):
     return dot_product / (norm1 * norm2)
 
 # =====================================================================
-# 🤖 GIGACHAT: РЕРАЙТ ТЕКСТА (УВЕЛИЧЕНА СУТЬ)
+# 🤖 GIGACHAT: РЕРАЙТ ТЕКСТА (С ОЧИСТКОЙ ОТ ПОВТОРОВ)
 # =====================================================================
 def rewrite_text(text, token, source_url):
     if not token or not text: return None
@@ -221,6 +221,7 @@ def rewrite_text(text, token, source_url):
                 {"role": "system", "content": (
                     "Ты — профессиональный редактор финансового канала. "
                     "Твоя задача — написать пост строго по шаблону. "
+                    "КРИТИЧЕСКИ ВАЖНО: Если новость написана сложным канцелярским языком (например, пресс-релизы ЦБ), объясни её суть простыми словами. "
                     "Если новость НЕ ОТНОСИТСЯ к экономике, финансам, бизнесу или технологиям, напиши ровно одно слово: ОТКАЗ."
                 )},
                 {"role": "user", "content": (
@@ -243,7 +244,7 @@ def rewrite_text(text, token, source_url):
         
         save_raw_response(raw_rewritten, source_url)
         
-        if any(root in raw_rewritten.lower() for root in ["генеративн", "облада", "мнени", "ограничен", "неправильн", "благодарим", "отказ"]): 
+        if any(root in raw_rewritten.lower() for root in ["генеративн", "облада", "мнени", "ограничен", "неправильн", "благодарим", "не могу"]): 
             print("DEBUG: GigaChat выдал ОТКАЗ.")
             return None
         if len(raw_rewritten) < 50: 
@@ -252,21 +253,32 @@ def rewrite_text(text, token, source_url):
         
         paragraphs = [p.strip() for p in raw_rewritten.split('\n') if p.strip()]
         
-        if len(paragraphs) < 3:
-            print(f"DEBUG: GigaChat вернул не 3 абзаца (а {len(paragraphs)}).")
+        if len(paragraphs) < 2:
+            print(f"DEBUG: GigaChat вернул мало абзацев (а {len(paragraphs)}).")
             return None
             
         if len(paragraphs[0]) < 100:
             print(f"DEBUG: Первый абзац слишком короткий ({len(paragraphs[0])} символов). Пропуск.")
             return None
             
-        final_text = (
-            f"{paragraphs[0]}\n\n"
-            f"<b>Что это значит?</b>\n\n"
-            f"{paragraphs[1]}\n\n"
-            f"<b>Что дальше?</b>\n\n"
-            f"{paragraphs[2]}"
-        )
+        # 🚨 ОЧИСТКА ОТ ПОВТОРОВ
+        for i in range(len(paragraphs)):
+            paragraphs[i] = re.sub(r'^(Что дальше\?|Что это значит\?)\s*', '', paragraphs[i]).strip()
+
+        if len(paragraphs) == 3:
+            final_text = (
+                f"{paragraphs[0]}\n\n"
+                f"<b>Что это значит?</b>\n\n"
+                f"{paragraphs[1]}\n\n"
+                f"<b>Что дальше?</b>\n\n"
+                f"{paragraphs[2]}"
+            )
+        else:
+            final_text = (
+                f"{paragraphs[0]}\n\n"
+                f"<b>Что это значит?</b>\n\n"
+                f"{paragraphs[1]}"
+            )
         
         return final_text.strip()
     except Exception as e: 
@@ -284,7 +296,6 @@ def generate_image_gigachat(category_name, token):
         
         base_style = "Cinematic lighting, Octane render, 8k resolution, minimalist corporate style, deep navy blue and metallic gold colors, highly detailed."
         
-        # Промпт только на основе рубрики, чтобы не рисовать текст
         prompt = (
             f"Create a conceptual 3D illustration for a financial news channel. Theme: {category_name}. "
             f"Use {base_style}. NO TEXT, NO LETTERS, NO ALPHABET, NO WORDS, NO NUMBERS, NO LOGOS."
@@ -426,7 +437,6 @@ def main():
                 
                 if not final_text: continue
 
-                # Генерируем картинку на основе рубрики, а не текста
                 category_name = category_header.replace('<b>', '').replace('</b>', '').replace('\n', '').strip()
                 image_bytes = generate_image_gigachat(category_name, token)
                 text_to_publish = category_header + final_text + f"\n\n🔗 <a href='{news_id}'>Источник</a>"
