@@ -29,7 +29,7 @@ jobs:
       - name: Install dependencies
         run: pip install -r requirements.txt
 
-      # 👇 НОВЫЙ ШАГ: Скачиваем официальный сертификат Минцифры для безопасного SSL
+      # Скачиваем официальный сертификат Минцифры для безопасного SSL
       - name: Download Russian Trusted Root CA
         run: wget https://gu-st.ru/content/Other/doc/russiantrustedca.pem
 
@@ -41,14 +41,20 @@ jobs:
           GIGACHAT_CLIENT_SECRET: ${{ secrets.GIGACHAT_CLIENT_SECRET }}
         run: python main.py
 
-      - name: Save history
+      # Обновленный шаг для сохранения истории и векторов
+      - name: Save history and embeddings
         run: |
           git config --local user.email "action@github.com"
           git config --local user.name "GitHub Action"
-          if [ -f history.json ]; then
-            git add history.json
-            if ! git diff --staged --quiet; then
-              git commit -m "Update history [skip ci]"
-              git push
-            fi
+          
+          # Добавляем оба файла в коммит (если они существуют)
+          if [ -f history.json ]; then git add history.json; fi
+          if [ -f embeddings.json ]; then git add embeddings.json; fi
+          
+          # Коммитим и пушим, если есть изменения
+          if ! git diff --staged --quiet; then
+            git commit -m "Update history and embeddings [skip ci]"
+            git push
+          else
+            echo "Нет изменений для сохранения."
           fi
