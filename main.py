@@ -14,7 +14,7 @@ from datetime import datetime
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 # =====================================================================
-# 🔒 БЕЗОПАСНЫЕ НАСТРОЙКИ
+# 🔒 БЕЗОПАСНЫЕ НАСТРОЙКИ (P0 из плана)
 # =====================================================================
 BOT_TOKEN = os.environ.get('BOT_TOKEN')
 CHAT_ID = os.environ.get('TARGET_CHANNEL')
@@ -26,7 +26,9 @@ if not BOT_TOKEN or not CHAT_ID:
     exit(1)
 
 CERT_PATH = 'russiantrustedca.pem'
-VERIFY_SSL = CERT_PATH if os.path.exists(CERT_PATH) else False
+# ИСПРАВЛЕНИЕ P0: Если сертификата нет, используем системные (True), а не отключаем проверку (False)
+VERIFY_SSL = CERT_PATH if os.path.exists(CERT_PATH) else True
+
 HISTORY_FILE = 'history.json'
 
 RSS_FEEDS = [
@@ -90,6 +92,24 @@ def fix_title_case(text):
                     clean_line = clean_line[0].upper() + clean_line[1:]
             fixed_lines.append(clean_line)
     return '\n'.join(fixed_lines)
+
+# =====================================================================
+# 🏷️ СИСТЕМА РУБРИК (P1 из плана)
+# =====================================================================
+def detect_category(text):
+    text = text.lower()
+    
+    # Технологии (15%)
+    if any(w in text for w in ['ии', 'нейросет', 'чип', 'робот', 'технолог', 'apple', 'openai', 'смартфон', 'гаджет']):
+        return "🤖 <b>QIVONZA | ТЕХНОЛОГИИ</b>\n\n"
+        
+    # Деньги (30%)
+    elif any(w in text for w in ['вклад', 'кредит', 'ипотек', 'зарплат', 'пенси', 'жкх', 'банк', 'рубл', 'доллар', 'цен']):
+        return "💸 <b>QIVONZA | ДЕНЬГИ</b>\n\n"
+        
+    # Экономика (40%) - по умолчанию для всего остального
+    else:
+        return "📊 <b>QIVONZA | ЭКОНОМИКА</b>\n\n"
 
 # =====================================================================
 # 🤖 GIGACHAT
@@ -180,9 +200,6 @@ def rewrite_text(text, token):
         print(f"Ошибка рерайта: {e}")
         return None
 
-# =====================================================================
-# 🎨 ГЕНЕРАЦИЯ КАРТИНОК (УМНЫЙ СЕМАНТИЧЕСКИЙ МАППИНГ)
-# =====================================================================
 def generate_image_gigachat(news_text, token):
     if not token: return None
     try:
@@ -283,6 +300,10 @@ def main():
     history = load_history()
     token = get_gigachat_token()
     
+    if not token:
+        print("КРИТИЧЕСКАЯ ОШИБКА: GigaChat недоступен. Публикация остановлена.")
+        return
+
     new_posts_count = 0
 
     KEYWORDS = [
@@ -350,6 +371,9 @@ def main():
 
                 print(f"🔥 Найдена новость: {title[:40]}...")
                 
+                # Определяем рубрику
+                category_header = detect_category(text_to_check)
+                
                 final_text = rewrite_text(f"{title}. {description}", token)
                 
                 if not final_text:
@@ -358,17 +382,19 @@ def main():
                 print("Генерация умного постера...")
                 image_bytes = generate_image_gigachat(text_to_check, token)
                 
+                # Добавляем рубрику в начало поста
+                text_with_category = category_header + final_text
                 source_link = f"\n\n🔗 <a href='{news_id}'>Источник</a>"
-                text_with_source = final_text + source_link
+                text_to_publish = text_with_category + source_link
                 
                 success = False
                 if image_bytes:
-                    success = send_photo(text_with_source, image_bytes)
+                    success = send_photo(text_to_publish, image_bytes)
                 else:
-                    success = send_text(text_with_source)
+                    success = send_text(text_to_publish)
                 
                 if success:
-                    print("✅ Опубликовано!")
+                    print(f"✅ Опубликовано в рубрике: {category_header.strip()}")
                     history[news_id] = datetime.now().isoformat()
                     save_history(history)
                     new_posts_count += 1
