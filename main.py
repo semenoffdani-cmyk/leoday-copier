@@ -192,7 +192,7 @@ def cosine_similarity(vec1, vec2):
     return dot_product / (norm1 * norm2)
 
 # =====================================================================
-# 🤖 GIGACHAT: РЕРАЙТ ТЕКСТА (УСИЛЕННЫЙ ПРОМПТ)
+# 🤖 GIGACHAT: РЕРАЙТ ТЕКСТА (УВЕЛИЧЕН ОБЪЕМ)
 # =====================================================================
 def rewrite_text(text, token, source_url):
     if not token or not text: return None
@@ -211,13 +211,13 @@ def rewrite_text(text, token, source_url):
                 )},
                 {"role": "user", "content": (
                     f"Напиши ровно 3 абзаца текста, разделенных переносом строки. Без тегов, без жирного шрифта, без отступов.\n"
-                    f"1. Суть новости (2-3 предложения, не меньше 100 символов).\n"
-                    f"2. Что это значит для кошелька или работы (1-2 предложения).\n"
-                    f"3. Что дальше (1 предложение).\n\n"
+                    f"1. Суть новости (3-4 предложения, не меньше 150 символов).\n"
+                    f"2. Что это значит для кошелька или работы (2-3 предложения).\n"
+                    f"3. Что дальше (1-2 предложения).\n\n"
                     f"Текст новости:\n{text}"
                 )}
             ],
-            "temperature": 0.3, "max_tokens": 1000
+            "temperature": 0.3, "max_tokens": 1500
         }
         
         response = SESSION.post(url, headers=headers, json=payload, verify=VERIFY_SSL, timeout=90)
@@ -257,7 +257,7 @@ def rewrite_text(text, token, source_url):
         return None
 
 # =====================================================================
-# 🎨 GIGACHAT: ГЕНЕРАЦИЯ КАРТИНОК (НА ОСНОВЕ ТЕКСТА НОВОСТИ)
+# 🎨 GIGACHAT: ГЕНЕРАЦИЯ КАРТИНОК
 # =====================================================================
 def generate_image_gigachat(news_title, news_description, token):
     if not token: return None
@@ -267,7 +267,6 @@ def generate_image_gigachat(news_title, news_description, token):
         
         base_style = "Cinematic lighting, Octane render, 8k resolution, minimalist corporate style, deep navy blue and metallic gold colors, highly detailed."
         
-        # Берем первые 300 символов, чтобы не перегружать нейросеть
         context = f"{news_title}. {news_description}"[:300]
         
         prompt = (
@@ -387,7 +386,6 @@ def main():
                 
                 if not final_text: continue
 
-                # 🚨 Генерируем картинку на основе заголовка и описания новости
                 image_bytes = generate_image_gigachat(title, description, token)
                 text_to_publish = category_header + final_text + f"\n\n🔗 <a href='{news_id}'>Источник</a>"
                 
