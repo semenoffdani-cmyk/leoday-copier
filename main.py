@@ -296,9 +296,12 @@ def generate_image_gigachat(category_name, token):
         
         base_style = "Cinematic lighting, Octane render, 8k resolution, minimalist corporate style, deep navy blue and metallic gold colors, highly detailed."
         
+        # 🚨 ЖЕСТКИЙ ЗАПРЕТ НА ЭКРАНЫ, МОНИТОРЫ И ЛЮБЫЕ ГРАФИКИ
         prompt = (
-            f"Create a conceptual 3D illustration for a financial news channel. Theme: {category_name}. "
-            f"Use {base_style}. NO TEXT, NO LETTERS, NO ALPHABET, NO WORDS, NO NUMBERS, NO LOGOS."
+            f"Create an abstract 3D illustration. Theme: {category_name}. "
+            f"Use {base_style}. "
+            f"IMPORTANT: NO TEXT, NO LETTERS, NO ALPHABET, NO WORDS, NO NUMBERS, NO LOGOS, NO MONITORS, NO SCREENS, NO CHARTS, NO GRAPHS, NO DOCUMENTS. "
+            f"Focus on abstract geometric shapes, glowing lines, spheres, cubes, and glowing particles."
         )
 
         payload = {
@@ -314,6 +317,21 @@ def generate_image_gigachat(category_name, token):
         if response.status_code != 200: 
             print(f"DEBUG: Ошибка генерации картинки: {response.status_code}")
             return None
+        content = response.json()['choices'][0]['message']['content']
+        match = re.search(r'<img src="([^"]+)"', content)
+        if match:
+            dl_url = f"https://gigachat.devices.sberbank.ru/api/v1/files/{match.group(1)}/content"
+            img_res = SESSION.get(dl_url, headers={'Authorization': f'Bearer {token}'}, verify=VERIFY_SSL, timeout=30)
+            if img_res.status_code == 200:
+                return img_res.content
+            else:
+                print(f"DEBUG: Ошибка скачивания картинки: {img_res.status_code}")
+        else:
+            print("DEBUG: GigaChat не вернул ссылку на картинку.")
+        return None
+    except Exception as e: 
+        print(f"DEBUG: Исключение при генерации картинки: {e}")
+        return None
         content = response.json()['choices'][0]['message']['content']
         match = re.search(r'<img src="([^"]+)"', content)
         if match:
