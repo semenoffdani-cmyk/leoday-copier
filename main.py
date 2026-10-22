@@ -1,7 +1,7 @@
 import os
 import sys
 
-# 🚨 ПРИНУДИТЕЛЬНЫЙ ВЫВОД ЛОГОВ (Чтобы видеть ошибки сразу)
+# 🚨 ПРИНУДИТЕЛЬНЫЙ ВЫВОД ЛОГОВ
 os.environ['PYTHONUNBUFFERED'] = '1'
 
 import json
@@ -422,8 +422,10 @@ def main():
                 if '�' in text_to_check or len(text_to_check) < 30: 
                     continue
                 
-                if BLACKLIST_REGEX.search(text_to_check): 
-                    print(f"DEBUG: ⏭️ Пропуск (черный список): {title[:30]}")
+                # 🚨 УЛУЧШЕННАЯ ПРОВЕРКА (Показывает, какое слово сработало)
+                match = BLACKLIST_REGEX.search(text_to_check)
+                if match: 
+                    print(f"DEBUG: ⏭️ Пропуск (черный список: '{match.group(0)}'): {title[:30]}")
                     continue
                 
                 if not KEYWORDS_REGEX.search(text_to_check): 
