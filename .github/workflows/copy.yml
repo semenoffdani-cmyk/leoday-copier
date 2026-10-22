@@ -2,7 +2,6 @@ name: Copy Financial Posts RSS
 
 on:
   schedule:
-    # Запуск по расписанию GitHub (страховка)
     - cron: '2,7,12,17,22,27,32,37,42,47,52,57 * * * *'
   workflow_dispatch:
 
@@ -24,7 +23,6 @@ jobs:
       - name: Install dependencies
         run: pip install -r requirements.txt
 
-      # Скачиваем официальный сертификат Минцифры
       - name: Download Russian Trusted Root CA
         run: wget https://gu-st.ru/content/Other/doc/russiantrustedca.pem
 
@@ -36,8 +34,7 @@ jobs:
           GIGACHAT_CLIENT_SECRET: ${{ secrets.GIGACHAT_CLIENT_SECRET }}
         run: python main.py
 
-      # Сохранение истории, векторов и сырых ответов GigaChat
-           - name: Save history and embeddings
+      - name: Save history and embeddings
         run: |
           git config --local user.email "action@github.com"
           git config --local user.name "GitHub Action"
