@@ -30,11 +30,10 @@ if not BOT_TOKEN or not CHAT_ID:
 CERT_PATH = 'russiantrustedca.pem'
 VERIFY_SSL = CERT_PATH if os.path.exists(CERT_PATH) else True
 HISTORY_FILE = 'history.json'
-EMBEDDINGS_FILE = 'embeddings.json' # Файл для хранения векторов
+EMBEDDINGS_FILE = 'embeddings.json'
 
-# Порог семантического сходства (0.85 = 85% схожести)
 SIMILARITY_THRESHOLD = 0.85
-MAX_EMBEDDINGS_HISTORY = 50 # Храним векторы последних 50 новостей
+MAX_EMBEDDINGS_HISTORY = 50 
 
 RSS_FEEDS = [
     'https://rssexport.rbc.ru/rbcnews/news/30/full.rss',
@@ -42,7 +41,7 @@ RSS_FEEDS = [
     'https://ria.ru/export/rss2/archive/index.xml'
 ]
 
-# 🚫 ЧЕРНЫЙ СПИСОК (Жесткая блокировка всего, что не по теме)
+# 🚫 ЧЕРНЫЙ СПИСОК
 BLACKLIST_REGEX = re.compile(
     r'тренер|матч|гол|футбол|хоккей|спорт|чемпионат|кубок|олимпиад|клуб|игрок|трусов|'
     r'погиб|убий|дтп|пожар|мчс|полици|суд|арест|взрыв|стрельб|теракт|мошенник|кража|ограблен|'
@@ -55,7 +54,7 @@ BLACKLIST_REGEX = re.compile(
     r'сенат|парламент|уголовн|следствен|пострадав|жертв|эвакуац|обнал|отмыван|коррупц|взятк', re.IGNORECASE
 )
 
-# ✅ БЕЛЫЙ СПИСОК (Глобальный триггер)
+# ✅ БЕЛЫЙ СПИСОК
 KEYWORDS_REGEX = re.compile(
     r'ставк|рубл|инфляц|цб |банк|акци|нефт|бюджет|налог|финанс|кредит|вклад|бирж|доллар|'
     r'евро|рынок|экономик|компан|убыт|прибыл|тариф|цен|рецесс|дефляц|профицит|дефицит|'
@@ -72,7 +71,6 @@ KEYWORDS_REGEX = re.compile(
     r'фарм|медицин|труд|безработ|персонал|кадр|миграц|логистик|транспорт|стройк|недвижим', re.IGNORECASE
 )
 
-# Настройка сессии с автоматическими повторными попытками
 SESSION = requests.Session()
 retries = Retry(total=3, backoff_factor=1, status_forcelist=[429, 500, 502, 503, 504])
 SESSION.mount('https://', HTTPAdapter(max_retries=retries))
@@ -81,16 +79,11 @@ SESSION.mount('https://', HTTPAdapter(max_retries=retries))
 # 🧹 ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ
 # =====================================================================
 def remove_garbage(text):
-    """Удаляет случайные английские обрывки (типа 'amburg'), но оставляет известные бренды."""
     known_brands = {'apple', 'tesla', 'microsoft', 'google', 'amazon', 'meta', 'nvidia', 'samsung', 'intel', 'spacex', 'openai', 'chatgpt'}
-    
     def replace_word(match):
         word = match.group(0)
-        if word.lower() in known_brands:
-            return word
+        if word.lower() in known_brands: return word
         return ''
-    
-    # Ищем английские слова длиной от 4 букв и заменяем их
     return re.sub(r'\b[a-zA-Z]{4,}\b', replace_word, text)
 
 def clean_text(text):
@@ -189,7 +182,7 @@ def cosine_similarity(vec1, vec2):
     return dot_product / (norm1 * norm2)
 
 # =====================================================================
-# 🤖 GIGACHAT: РЕРАЙТ ТЕКСТА
+# 🤖 GIGACHAT: РЕРАЙТ ТЕКСТА (ОБНОВЛЕННЫЙ ШАБЛОН)
 # =====================================================================
 def rewrite_text(text, token):
     if not token or not text: return None
@@ -206,10 +199,9 @@ def rewrite_text(text, token):
                     "Если новость НЕ ОТНОСИТСЯ к экономике, финансам, бизнесу или технологиям, напиши ровно одно слово: ОТКАЗ."
                 )},
                 {"role": "user", "content": (
-                    f"Напиши пост строго по шаблону:\n\n"
-                    f"<b>Что произошло?</b>\n\n[1-2 предложения сути. Следи за падежами!]\n\n"
-                    f"<b>Что это значит для ваших денег и работы?</b>\n\n[1-2 предложения о влиянии]\n\n"
-                    f"<b>За чем следить дальше?</b>\n\n[1 предложение]\n\n"
+                    f"Напиши пост строго по этому шаблону (не добавляй ничего лишнего):\n\n"
+                    f"<b>Что это значит?</b>\n\n[1-2 предложения о влиянии на кошелек или работу]\n\n"
+                    f"<b>Что дальше?</b>\n\n[1 предложение о том, на какой показатель смотреть]\n\n"
                     f"Текст новости:\n{text}"
                 )}
             ],
@@ -226,7 +218,7 @@ def rewrite_text(text, token):
     except Exception: return None
 
 # =====================================================================
-# 🎨 GIGACHAT: ГЕНЕРАЦИЯ КАРТИНОК (ОБНОВЛЕННЫЕ ПРОМПТЫ)
+# 🎨 GIGACHAT: ГЕНЕРАЦИЯ КАРТИНОК
 # =====================================================================
 def generate_image_gigachat(news_text, token):
     if not token: return None
@@ -234,9 +226,7 @@ def generate_image_gigachat(news_text, token):
         url = "https://gigachat.devices.sberbank.ru/api/v1/chat/completions"
         headers = {'Content-Type': 'application/json', 'Authorization': f'Bearer {token}'}
         
-        # Кинематографичный стиль и дорогой рендер
         base_style = "Cinematic lighting, Octane render, 8k resolution, minimalist corporate style, deep navy blue and metallic gold colors, highly detailed, no text."
-        
         theme = f"Abstract 3D financial background, floating golden geometric shapes and glowing blue lines, {base_style}"
         
         if re.search(r'промышленн|завод|станкостроен|производств|фабрик|станок', news_text, re.IGNORECASE): 
@@ -340,22 +330,22 @@ def main():
 
                 print(f"🔥 Новость: {title[:40]}...")
                 
-                # --- 1. СЕМАНТИЧЕСКАЯ ДЕДУПЛИКАЦИЯ ---
                 news_embedding = get_embedding(title, token)
                 if news_embedding:
                     is_duplicate = False
                     for old_url, old_emb in embeddings_history.items():
                         similarity = cosine_similarity(news_embedding, old_emb)
                         if similarity > SIMILARITY_THRESHOLD:
-                            print(f"⏭️ Пропуск (семантический дубль с {old_url[:30]}...). Сходство: {similarity:.2f}")
+                            print(f"⏭️ Пропуск (семантический дубль). Сходство: {similarity:.2f}")
                             is_duplicate = True
                             break
                     if is_duplicate: continue
 
-                # --- 2. ФАКТЧЕКИНГ ЦИФР ---
                 original_percents = set(re.findall(r'(\d+(?:[.,]\d+)?)\s*%', text_to_check))
 
                 category_header = detect_category(text_to_check)
+                
+                # Передаем в GigaChat только суть (без старых заголовков)
                 final_text = rewrite_text(f"{title}. {description}", token)
                 if not final_text: continue
                 
