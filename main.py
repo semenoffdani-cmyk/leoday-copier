@@ -45,23 +45,32 @@ RSS_FEEDS = [
     'https://ria.ru/export/rss2/archive/index.xml'
 ]
 
-# 🚫 ЧЕРНЫЙ СПИСОК
+# 🚫 РАСШИРЕННЫЙ ЧЕРНЫЙ СПИСОК (Спорт, Культура, Медицина, Образование и т.д.)
 BLACKLIST_REGEX = re.compile(
+    # Спорт
     r'тренер|матч|гол|футбол|хоккей|спорт|чемпионат|кубок|олимпиад|клуб|игрок|трусов|'
     r'теннис|бокс|ufc|mma|фигурное|биатлон|плавание|футболист|хоккеист|медаль|турнир|'
+    r'кхл|нхл|рпл|фнл|овертайм|шайб|вратар|голкипер|авангард|нефтехимик|баскетбол|волейбол|'
+    # Криминал и ЧП
     r'погиб|убий|дтп|пожар|мчс|полици|суд|арест|взрыв|стрельб|теракт|мошенник|кража|ограблен|'
     r'наркотик|изнасилован|педофил|тюрьма|колония|приговор|прокурор|адвокат|утонул|госпитализирован|'
     r'плутоний|контрабанда|экстрадиция|отмывание|стрельба|школа|'
+    # Погода и природа
     r'погод|ураган|наводнен|паводок|землетрясен|циклон|шторм|гололед|снегопад|тайфун|цунами|'
+    # Шоу-бизнес, культура, мода, развлечения
     r'шоу-бизнес|знаменитост|актер|певиц|развод|звезд|сериал|концерт|фестивал|инстаграм|тикток|блогер|скандал|'
     r'свадьба|беременна|родила|пластика|ютуб|хайп|аукцион|топор|фильм|кубрик|памятник|музей|гражданство|'
+    r'выставк|театр|балет|опер|кинопремия|оскар|канн|подиум|мода|коллекц|дизайнер|кулинар|ресторан|шеф-повар|'
+    # Желтуха и нерелевантное
     r'шок|сенсац|ужас|эксклюзив|гороскоп|астролог|рецепт|диет|похуден|отношени|коронавирус|'
     r'вакцин|грипп|заболеваемост|эпидеми|симптом|нерпа|тигр|фотоловушка|'
+    # Политика и геополитика
     r'мобилизац|войн|санкц|спецоперац|трамп|байден|путин|медведев|зеленский|госдум|депутат|оппозиц|митинг|'
     r'лгбт|навальн|мигрант|религи|церковь|бпла|дроны|атак|сбит|ракет|украин|дмитриев|воробьев|мид|'
     r'посол|нато|выборы|конгресс|сенат|парламент|уголовн|следствен|пострадав|жертв|эвакуац|обнал|'
     r'отмыван|коррупц|взятк|пентагон|госдеп|кремль|белый дом|губернатор|мэр|мэрия|минобороны|пво|'
     r'уничтожили|обстрел|'
+    # Транспорт и бытовуха
     r'самокат|велосипед|парковк|тротуар|пешеход|прорыв трубы|коммунальная авария|'
     r'указание|положение|депонент|ломбардный|памятная монета|'
     r'переноск|животн|поезд|вагон|кошек|собак', 
@@ -206,7 +215,8 @@ def rewrite_text(text, token, source_url):
                 {"role": "system", "content": (
                     "Ты — профессиональный редактор финансового канала. "
                     "Твоя задача — переписать новость по шаблону. "
-                    "КРИТИЧЕСКИ ВАЖНО: Ты ОБЯЗАН переписать новость, даже если она про банки, ценные бумаги, РЕПО или депозиты. Не отказывайся. "
+                    "КРИТИЧЕСКИ ВАЖНО: Если новость про СПОРТ (хоккей, футбол, матч, команду, КХЛ, НХЛ и т.д.), напиши ровно одно слово: ОТКАЗ. "
+                    "КРИТИЧЕСКИ ВАЖНО: Ты ОБЯЗАН переписать экономическую новость, даже если она про банки, ценные бумаги, РЕПО или депозиты. Не отказывайся. "
                     "Если новость написана сложным канцелярским языком (например, пресс-релизы ЦБ, статистика), объясни её суть простыми словами."
                 )},
                 {"role": "user", "content": (
@@ -230,6 +240,9 @@ def rewrite_text(text, token, source_url):
             
         raw_rewritten = response.json()['choices'][0]['message']['content'].strip()
         
+        if "ОТКАЗ" in raw_rewritten.upper():
+            return None
+
         if len(raw_rewritten) < 50: 
             return None
         
@@ -272,7 +285,7 @@ def rewrite_text(text, token, source_url):
         return None
 
 # =====================================================================
-# 🎨 GIGACHAT: ГЕНЕРАЦИЯ КАРТИНОК (С ЛОГОТИПОМ QIVONZA)
+# 🎨 GIGACHAT: ГЕНЕРАЦИЯ КАРТИНОК (РЕАЛИСТИЧНЫЕ, QIVONZA ТОЛЬКО НА ЭКРАНАХ)
 # =====================================================================
 def generate_image_gigachat(news_text, token):
     if not token: return None
@@ -280,43 +293,43 @@ def generate_image_gigachat(news_text, token):
         url = "https://gigachat.devices.sberbank.ru/api/v1/chat/completions"
         headers = {'Content-Type': 'application/json', 'Authorization': f'Bearer {token}'}
         
-        base_style = "Cinematic lighting, Octane render, 8k resolution, minimalist corporate style, deep navy blue and metallic gold colors, highly detailed."
-        
         text_lower = news_text.lower()
         
-        # Определяем визуальную тему
+        # Формируем РЕАЛИСТИЧНЫЙ визуальный промпт на основе текста новости
         if any(w in text_lower for w in ['нефт', 'газ', 'энергет', 'топлив', 'дизел']):
-            visual_topic = "Macro 3D shot of a glowing golden oil drop suspended in mid-air, surrounded by sleek glass pipelines and glowing blue energy"
+            visual_topic = "A photorealistic scene of an oil refinery at golden sunset, industrial pipelines, dramatic sky, high detail"
         elif any(w in text_lower for w in ['банк', 'цб', 'кредит', 'вклад', 'сбербанк', 'втб']):
-            visual_topic = "3D render of a modern bank vault door slightly open, glowing golden coins floating out, dark blue background"
+            visual_topic = "A photorealistic interior of a modern bank office with marble columns, warm golden lighting, professional atmosphere"
         elif any(w in text_lower for w in ['ипотек', 'дом', 'жкх', 'недвиж', 'квартир']):
-            visual_topic = "Modern 3D architectural render of a luxury minimalist house made of glass and gold accents, floating in a dark blue space"
+            visual_topic = "A photorealistic modern luxury house with large glass windows, warm golden evening light, architectural photography"
         elif any(w in text_lower for w in ['нейросет', 'чип', 'робот', 'технолог', 'apple', 'openai']):
-            visual_topic = "Macro 3D shot of a glowing golden microchip on a dark blue circuit board with neon light pulses"
+            visual_topic = "A photorealistic close-up of a futuristic microchip on a dark circuit board, glowing blue and gold lights, macro photography"
         elif any(w in text_lower for w in ['акци', 'бирж', 'индекс', 'рынок', 'ставк']):
-            visual_topic = "Minimalist 3D holographic stock market chart with glowing golden arrows pointing upward"
+            visual_topic = "A photorealistic view of a modern stock exchange trading floor with large screens and professional atmosphere"
         elif any(w in text_lower for w in ['крипт', 'биткоин', 'блокчейн']):
-            visual_topic = "Glossy 3D render of a floating golden Bitcoin symbol surrounded by glowing blue digital blocks"
+            visual_topic = "A photorealistic close-up of a golden Bitcoin coin on a dark surface with glowing blue digital elements"
         elif any(w in text_lower for w in ['рост', 'увеличен', 'прибыл', 'вырос']):
-            visual_topic = "Abstract 3D golden arrows pointing upwards among glowing blue geometric shapes"
+            visual_topic = "A photorealistic image of a financial analyst looking at a large monitor with rising golden charts in a modern office"
         elif any(w in text_lower for w in ['санкц', 'запрет', 'снижен', 'падени']):
-            visual_topic = "Abstract 3D golden downward arrows crashing into a glowing blue glass wall"
+            visual_topic = "A photorealistic image of a modern trading floor with falling red charts on large screens, dramatic atmosphere"
         else:
-            visual_topic = "Abstract 3D financial background with glowing blue and gold geometric shapes, floating coins, and upward arrows"
+            visual_topic = "A photorealistic scene of a modern financial office with warm golden lighting, professional atmosphere, clean architecture"
 
-        # Разрешаем текст, но ТОЛЬКО "QIVONZA"
+        # Стиль: фотореализм + строгие правила для текста
         prompt = (
-            f"{visual_topic}. {base_style}. "
-            f"The ONLY allowed text is the word 'QIVONZA' written in elegant 3D golden letters. "
-            f"Place 'QIVONZA' prominently as a glowing neon sign, a 3D logo on a screen, or floating in the background. "
-            f"NO OTHER TEXT, NO OTHER LETTERS, NO WORDS, NO NUMBERS, NO WATERMARKS. "
-            f"Focus on high-quality abstract 3D shapes, spheres, and glowing particles."
+            f"{visual_topic}. "
+            f"STYLE: photorealistic, cinematic lighting, 8k resolution, natural colors, professional photography, highly detailed. "
+            f"TEXT RULES (STRICT): "
+            f"1. If the scene contains a screen, monitor, chart, or document — write ONLY the word 'QIVONZA' on it in elegant font. "
+            f"2. If the scene has NO screens, monitors, charts or documents — there MUST BE ABSOLUTELY NO TEXT ANYWHERE. "
+            f"3. NEVER write any other words, letters, numbers, gibberish, or watermarks. "
+            f"4. Do not add any UI elements, labels, or signs with text."
         )
 
         payload = {
             "model": "GigaChat",
             "messages": [
-                {"role": "system", "content": "You are a professional 3D artist. Use text2image. Return only <img src=\"FILE_ID\"/>"},
+                {"role": "system", "content": "You are a professional photographer and 3D artist. Use text2image. Return only <img src=\"FILE_ID\"/>"},
                 {"role": "user", "content": prompt}
             ],
             "function_call": "auto"
