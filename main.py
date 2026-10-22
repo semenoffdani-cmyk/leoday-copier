@@ -90,7 +90,7 @@ def fix_title_case(text):
     return '\n'.join(fixed_lines)
 
 # =====================================================================
-# 🤖 GIGACHAT: ТЕКСТ
+# 🤖 GIGACHAT
 # =====================================================================
 def get_gigachat_token():
     if not GIGA_CLIENT_ID or not GIGA_CLIENT_SECRET:
@@ -116,7 +116,7 @@ def get_gigachat_token():
 
 def rewrite_text(text, token):
     if not token or not text:
-        return None # Возвращаем None, если нет токена или текста
+        return None
     try:
         url = "https://gigachat.devices.sberbank.ru/api/v1/chat/completions"
         headers = {'Content-Type': 'application/json', 'Authorization': f'Bearer {token}'}
@@ -130,7 +130,8 @@ def rewrite_text(text, token):
                         "Ты — профессиональный редактор финансового канала. "
                         "Твоя задача — написать пост строго по шаблону. "
                         "Используй <b>жирный шрифт</b> только для трех заголовков. "
-                        "КРИТИЧЕСКИ ВАЖНО: Пиши обычным текстом, понятным для обывателя. НЕ ПИШИ КАЖДОЕ СЛОВО С БОЛЬШОЙ БУКВЫ."
+                        "КРИТИЧЕСКИ ВАЖНО: Пиши обычным текстом. "
+                        "Если новость НЕ ОТНОСИТСЯ к экономике, финансам или бизнесу (например, это спорт, политика или происшествия), напиши ровно одно слово: ОТКАЗ."
                     )
                 },
                 {
@@ -144,36 +145,31 @@ def rewrite_text(text, token):
                     )
                 }
             ],
-            "temperature": 0.3, 
+            "temperature": 0.2, 
             "max_tokens": 1000
         }
         
         response = requests.post(url, headers=headers, json=payload, verify=False, timeout=90)
-        
         if response.status_code != 200:
-            print(f"⚠️ Ошибка API GigaChat: {response.status_code}")
             return None
             
         result = response.json()
         if 'choices' in result:
             rewritten = result['choices'][0]['message']['content'].strip()
-            rewritten = re.sub(r'[*_`#]', '', rewritten)
-            rewritten = fix_title_case(rewritten)
             
-            # Если нейросеть просто вернула исходный текст, считаем это ошибкой
-            if rewritten.lower() == text.lower():
-                print("⚠️ GigaChat вернул исходный текст без изменений.")
+            # Если нейросеть поняла, что новость не по теме, и написала ОТКАЗ
+            if "ОТКАЗ" in rewritten.upper():
+                print("⏭️ GigaChat определил новость как нефинансовую (ОТКАЗ).")
                 return None
                 
+            rewritten = re.sub(r'[*_`#]', '', rewritten)
+            rewritten = fix_title_case(rewritten)
             return rewritten.strip()
         return None
     except Exception as e:
-        print(f"⚠️ Исключение при рерайте: {e}")
+        print(f"Ошибка рерайта: {e}")
         return None
 
-# =====================================================================
-# 🎨 ГЕНЕРАЦИЯ КАРТИНОК (ТОЛЬКО GIGACHAT)
-# =====================================================================
 def generate_image_gigachat(token):
     if not token: return None
     try:
@@ -249,10 +245,18 @@ def main():
     
     new_posts_count = 0
 
+    # Обязательные финансовые слова (хотя бы одно должно быть)
     FINANCIAL_KEYWORDS = [
         'ставк', 'рубл', 'инфляц', 'цб ', 'банк', 'акци', 'нефт', 'бюджет', 
         'налог', 'финанс', 'кредит', 'вклад', 'бирж', 'доллар', 'евро', 
         'рынок', 'экономик', 'компан', 'убыт', 'прибыл', 'тариф', 'цен'
+    ]
+
+    # 🚫 Черный список (если есть хотя бы одно слово — новость пропускается)
+    BLACKLIST_KEYWORDS = [
+        'тренер', 'матч', 'гол', 'футбол', 'хоккей', 'спорт', 'чемпионат', 
+        'кубок', 'олимпиад', 'клуб', 'игрок', 'погиб', 'убий', 'дтп', 
+        'пожар', 'мчс', 'полици', 'суд', 'арест', 'мобилизац', 'войн'
     ]
 
     for feed_url in RSS_FEEDS:
@@ -271,33 +275,35 @@ def main():
                     
                 title = clean_text(entry.title)
                 description = clean_text(getattr(entry, 'description', ''))
-                
                 text_to_check = f"{title}. {description}".lower()
+                
                 if '�' in text_to_check:
                     continue
                 
                 if len(text_to_check) < 30:
                     continue
 
+                # 1. Проверка на черный список (спорт, криминал и т.д.)
+                if any(bad_word in text_to_check for bad_word in BLACKLIST_KEYWORDS):
+                    print(f"⏭️ Пропуск (черный список): {title[:40]}...")
+                    continue
+
+                # 2. Проверка на наличие финансовых слов
                 matched_keyword = next((kw for kw in FINANCIAL_KEYWORDS if kw in text_to_check), None)
                 if not matched_keyword:
                     continue
 
                 print(f"🔥 Найдена новость: {title[:40]}...")
                 
-                # 1. Рерайт текста
                 final_text = rewrite_text(f"{title}. {description}", token)
                 
-                # 🚨 ЕСЛИ ТЕКСТ НЕ ПЕРЕПИСАН — ПРОПУСКАЕМ НОВОСТЬ
                 if not final_text:
                     print("⏭️ Пропуск: GigaChat не смог обработать текст.")
                     continue
                 
-                # 2. Генерация картинки
                 print("Генерация постера...")
                 image_bytes = generate_image_gigachat(token)
                 
-                # 3. Публикация
                 success = False
                 if image_bytes:
                     success = send_photo(final_text, image_bytes)
