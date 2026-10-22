@@ -45,7 +45,7 @@ RSS_FEEDS = [
     'https://ria.ru/export/rss2/archive/index.xml'
 ]
 
-# 🚫 ЧЕРНЫЙ СПИСОК (Умеренный, добавили животных)
+# 🚫 ЧЕРНЫЙ СПИСОК
 BLACKLIST_REGEX = re.compile(
     r'тренер|матч|гол|футбол|хоккей|спорт|чемпионат|кубок|олимпиад|клуб|игрок|трусов|'
     r'теннис|бокс|ufc|mma|фигурное|биатлон|плавание|футболист|хоккеист|медаль|турнир|'
@@ -192,7 +192,7 @@ def cosine_similarity(vec1, vec2):
     return dot_product / (norm1 * norm2)
 
 # =====================================================================
-# 🤖 GIGACHAT: РЕРАЙТ ТЕКСТА (БЕЗ УПОМИНАНИЯ "ОТКАЗ")
+# 🤖 GIGACHAT: РЕРАЙТ ТЕКСТА
 # =====================================================================
 def rewrite_text(text, token, source_url):
     if not token or not text: return None
@@ -225,7 +225,6 @@ def rewrite_text(text, token, source_url):
             
         raw_rewritten = response.json()['choices'][0]['message']['content'].strip()
         
-        # Убираем проверку на отказ, чтобы не блокировать новости ЦБ
         if len(raw_rewritten) < 50: 
             return None
         
@@ -234,7 +233,6 @@ def rewrite_text(text, token, source_url):
         if len(paragraphs) < 2:
             return None
             
-        # Очистка от дублей заголовков
         for i in range(len(paragraphs)):
             paragraphs[i] = re.sub(r'^(Что дальше\?|Что это значит\?)\s*', '', paragraphs[i]).strip()
 
@@ -258,9 +256,9 @@ def rewrite_text(text, token, source_url):
         return None
 
 # =====================================================================
-# 🎨 GIGACHAT: ГЕНЕРАЦИЯ КАРТИНОК
+# 🎨 GIGACHAT: ГЕНЕРАЦИЯ КАРТИНОК (НА ОСНОВЕ ТЕКСТА НОВОСТИ)
 # =====================================================================
-def generate_image_gigachat(category_name, token):
+def generate_image_gigachat(news_title, news_description, token):
     if not token: return None
     try:
         url = "https://gigachat.devices.sberbank.ru/api/v1/chat/completions"
@@ -268,11 +266,15 @@ def generate_image_gigachat(category_name, token):
         
         base_style = "Cinematic lighting, Octane render, 8k resolution, minimalist corporate style, deep navy blue and metallic gold colors, highly detailed."
         
+        # Берем первые 300 символов, чтобы не перегружать нейросеть
+        context = f"{news_title}. {news_description}"[:300]
+        
         prompt = (
-            f"Create an abstract 3D illustration. Theme: {category_name}. "
-            f"Use {base_style}. "
-            f"IMPORTANT: NO TEXT, NO LETTERS, NO ALPHABET, NO WORDS, NO NUMBERS, NO LOGOS, NO MONITORS, NO SCREENS, NO CHARTS, NO GRAPHS, NO DOCUMENTS. "
-            f"Focus on abstract geometric shapes, glowing lines, spheres, cubes, and glowing particles."
+            f"Visualize this news as a high-quality 3D illustration:\n"
+            f"---\n{context}\n---\n\n"
+            f"STYLE: {base_style}.\n"
+            f"STRICT PROHIBITIONS: DO NOT DRAW ANY TEXT, LETTERS, WORDS, NUMBERS, LOGOS, MONITORS, SCREENS, CHARTS, GRAPHS, DOCUMENTS, BOOKS, OR SIGNS.\n"
+            f"INSTRUCTION: Create a conceptual visual metaphor. For example, for 'oil prices' draw glowing golden oil drops; for 'banking' draw a futuristic vault; for 'AI' draw a glowing microchip. Focus on abstract geometric shapes, spheres, and glowing particles."
         )
 
         payload = {
@@ -384,8 +386,8 @@ def main():
                 
                 if not final_text: continue
 
-                category_name = category_header.replace('<b>', '').replace('</b>', '').replace('\n', '').strip()
-                image_bytes = generate_image_gigachat(category_name, token)
+                # 🚨 Генерируем картинку на основе заголовка и описания новости
+                image_bytes = generate_image_gigachat(title, description, token)
                 text_to_publish = category_header + final_text + f"\n\n🔗 <a href='{news_id}'>Источник</a>"
                 
                 success = send_photo(text_to_publish, image_bytes) if image_bytes else send_text(text_to_publish)
