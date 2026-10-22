@@ -1,4 +1,9 @@
 import os
+import sys
+
+# 🚨 ПРИНУДИТЕЛЬНЫЙ ВЫВОД ЛОГОВ (Чтобы видеть ошибки сразу)
+os.environ['PYTHONUNBUFFERED'] = '1'
+
 import json
 import re
 import time
@@ -25,7 +30,7 @@ GIGA_CLIENT_SECRET = os.environ.get('GIGACHAT_CLIENT_SECRET')
 
 if not BOT_TOKEN or not CHAT_ID:
     print("КРИТИЧЕСКАЯ ОШИБКА: Не заданы BOT_TOKEN или TARGET_CHANNEL")
-    exit(1)
+    sys.exit(1)
 
 CERT_PATH = 'russiantrustedca.pem'
 VERIFY_SSL = CERT_PATH if os.path.exists(CERT_PATH) else True
@@ -41,32 +46,24 @@ RSS_FEEDS = [
     'https://ria.ru/export/rss2/archive/index.xml'
 ]
 
-# 🚫 УМЕРЕННЫЙ ЧЕРНЫЙ СПИСОК (Стабильная версия)
+# 🚫 УМЕРЕННЫЙ ЧЕРНЫЙ СПИСОК
 BLACKLIST_REGEX = re.compile(
-    # Спорт
     r'тренер|матч|гол|футбол|хоккей|спорт|чемпионат|кубок|олимпиад|клуб|игрок|трусов|'
     r'теннис|бокс|ufc|mma|фигурное|биатлон|плавание|футболист|хоккеист|медаль|турнир|'
-    # Криминал и ЧП
     r'погиб|убий|дтп|пожар|мчс|полици|суд|арест|взрыв|стрельб|теракт|мошенник|кража|ограблен|'
     r'наркотик|изнасилован|педофил|тюрьма|колония|приговор|прокурор|адвокат|утонул|госпитализирован|'
     r'плутоний|контрабанда|экстрадиция|отмывание|стрельба|школа|'
-    # Погода и природа
     r'погод|ураган|наводнен|паводок|землетрясен|циклон|шторм|гололед|снегопад|тайфун|цунами|'
-    # Шоу-бизнес и блогеры
     r'шоу-бизнес|знаменитост|актер|певиц|развод|звезд|сериал|концерт|фестивал|инстаграм|тикток|блогер|скандал|'
     r'свадьба|беременна|родила|пластика|ютуб|хайп|аукцион|топор|фильм|кубрик|памятник|музей|гражданство|'
-    # Желтуха и нерелевантное
     r'шок|сенсац|ужас|эксклюзив|гороскоп|астролог|рецепт|диет|похуден|отношени|коронавирус|'
     r'вакцин|грипп|заболеваемост|эпидеми|симптом|нерпа|тигр|фотоловушка|'
-    # Политика и геополитика
     r'мобилизац|войн|санкц|спецоперац|трамп|байден|путин|зеленский|госдум|депутат|оппозиц|митинг|'
     r'лгбт|навальн|мигрант|религи|церковь|бпла|дроны|атак|сбит|ракет|украин|дмитриев|воробьев|мид|'
     r'посол|нато|выборы|конгресс|сенат|парламент|уголовн|следствен|пострадав|жертв|эвакуац|обнал|'
     r'отмыван|коррупц|взятк|пентагон|госдеп|кремль|белый дом|губернатор|мэр|мэрия|минобороны|пво|'
     r'уничтожили|обстрел|'
-    # Транспорт и бытовуха
     r'самокат|велосипед|парковк|тротуар|пешеход|прорыв трубы|коммунальная авария|'
-    # Технические документы ЦБ
     r'указание|положение|депонент|ломбардный|памятная монета|', 
     re.IGNORECASE
 )
@@ -108,7 +105,6 @@ def remove_garbage(text):
 
 def fix_caps(text):
     if text.isupper():
-        # Сохраняем важные аббревиатуры
         text = re.sub(r'\b(РФ|США|ЦБ|ВВП|ЕС|ОПЕК|НАТО|СССР|СНГ|МВФ)\b', lambda m: m.group(0), text)
         text = text.capitalize()
         text = re.sub(r'\.\s*([а-яa-z])', lambda m: '. ' + m.group(1).upper(), text)
@@ -181,6 +177,7 @@ def detect_category(text):
 # =====================================================================
 def get_gigachat_token():
     if not GIGA_CLIENT_ID or not GIGA_CLIENT_SECRET: 
+        print("DEBUG: GIGACHAT_CLIENT_ID или SECRET не заданы!")
         return None
     try:
         auth_str = f"{GIGA_CLIENT_ID.strip()}:{GIGA_CLIENT_SECRET.strip()}"
@@ -190,9 +187,14 @@ def get_gigachat_token():
         response = SESSION.post(url, headers=headers, data='scope=GIGACHAT_API_PERS', verify=VERIFY_SSL, timeout=30)
         
         if response.status_code == 200:
+            print("DEBUG: Токен GigaChat получен.")
             return response.json().get('access_token')
+        else:
+            print(f"DEBUG: Ошибка GigaChat API: {response.status_code} {response.text}")
+            return None
+    except Exception as e: 
+        print(f"DEBUG: Исключение при получении токена GigaChat: {e}")
         return None
-    except Exception: return None
 
 def get_embedding(text, token):
     if not token or not text: return None
@@ -243,11 +245,17 @@ def rewrite_text(text, token):
             "temperature": 0.3, "max_tokens": 1000
         }
         response = SESSION.post(url, headers=headers, json=payload, verify=VERIFY_SSL, timeout=90)
-        if response.status_code != 200: return None
+        if response.status_code != 200: 
+            print(f"DEBUG: Ошибка рерайта GigaChat: {response.status_code}")
+            return None
         rewritten = response.json()['choices'][0]['message']['content'].strip()
         
-        if any(root in rewritten.lower() for root in ["генеративн", "облада", "мнени", "ограничен", "неправильн", "благодарим", "отказ"]): return None
-        if len(rewritten) < 50: return None
+        if any(root in rewritten.lower() for root in ["генеративн", "облада", "мнени", "ограничен", "неправильн", "благодарим", "отказ"]): 
+            print("DEBUG: GigaChat выдал ОТКАЗ.")
+            return None
+        if len(rewritten) < 50: 
+            print("DEBUG: GigaChat выдал слишком короткий текст.")
+            return None
         
         rewritten = re.sub(r'[*_`#]', '', rewritten)
         rewritten = fix_title_case(rewritten)
@@ -270,7 +278,9 @@ def rewrite_text(text, token):
         rewritten = re.sub(r'</b>\s*', '</b>\n\n', rewritten)
         
         return rewritten.strip()
-    except Exception: return None
+    except Exception as e: 
+        print(f"DEBUG: Исключение при рерайте: {e}")
+        return None
 
 # =====================================================================
 # 🎨 GIGACHAT: ГЕНЕРАЦИЯ КАРТИНОК
@@ -327,15 +337,24 @@ def generate_image_gigachat(news_text, token):
         }
         
         response = SESSION.post(url, headers=headers, json=payload, verify=VERIFY_SSL, timeout=90)
-        if response.status_code != 200: return None
+        if response.status_code != 200: 
+            print(f"DEBUG: Ошибка генерации картинки: {response.status_code}")
+            return None
         content = response.json()['choices'][0]['message']['content']
         match = re.search(r'<img src="([^"]+)"', content)
         if match:
             dl_url = f"https://gigachat.devices.sberbank.ru/api/v1/files/{match.group(1)}/content"
             img_res = SESSION.get(dl_url, headers={'Authorization': f'Bearer {token}'}, verify=VERIFY_SSL, timeout=30)
-            return img_res.content if img_res.status_code == 200 else None
+            if img_res.status_code == 200:
+                return img_res.content
+            else:
+                print(f"DEBUG: Ошибка скачивания картинки: {img_res.status_code}")
+        else:
+            print("DEBUG: GigaChat не вернул ссылку на картинку.")
         return None
-    except Exception: return None
+    except Exception as e: 
+        print(f"DEBUG: Исключение при генерации картинки: {e}")
+        return None
 
 # =====================================================================
 # ✈️ TELEGRAM
@@ -345,45 +364,73 @@ def send_photo(text, image_bytes):
     if len(text) > 1000: text = text[:1000] + "..."
     try:
         res = SESSION.post(url, data={"chat_id": CHAT_ID, "caption": text, "parse_mode": "HTML"}, files={"photo": ("poster.jpg", image_bytes, "image/jpeg")}, timeout=30)
+        if not res.ok:
+            print(f"DEBUG: Ошибка Telegram (фото): {res.text}")
         return res.ok
-    except: return False
+    except Exception as e: 
+        print(f"DEBUG: Исключение Telegram (фото): {e}")
+        return False
 
 def send_text(text):
     url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
     try:
         res = SESSION.post(url, json={"chat_id": CHAT_ID, "text": text, "parse_mode": "HTML", "disable_web_page_preview": True}, timeout=15)
+        if not res.ok:
+            print(f"DEBUG: Ошибка Telegram (текст): {res.text}")
         return res.ok
-    except: return False
+    except Exception as e: 
+        print(f"DEBUG: Исключение Telegram (текст): {e}")
+        return False
 
 # =====================================================================
 # 🚀 MAIN
 # =====================================================================
 def main():
+    print("DEBUG: Скрипт запущен.")
+    
     history = load_json(HISTORY_FILE)
     embeddings_history = load_json(EMBEDDINGS_FILE)
     
     token = get_gigachat_token()
-    if not token: return
+    if not token: 
+        print("DEBUG: Работа остановлена, так как нет токена GigaChat.")
+        return
     new_posts_count = 0
 
     for feed_url in RSS_FEEDS:
+        print(f"DEBUG: Читаем ленту {feed_url}")
         try: feed = feedparser.parse(feed_url)
-        except Exception: continue
+        except Exception as e: 
+            print(f"DEBUG: Ошибка чтения RSS: {e}")
+            continue
+        
+        print(f"DEBUG: Получено {len(feed.entries)} новостей.")
         
         for entry in feed.entries[:30]:
             try:
                 news_id = entry.link
-                if not news_id or news_id in history: continue
-                    
                 title = clean_text(entry.title)
+                
+                print(f"DEBUG: Проверяю новость: {title[:50]}...")
+
+                if not news_id or news_id in history: 
+                    continue
+                    
                 description = clean_text(getattr(entry, 'description', ''))
                 text_to_check = f"{title}. {description}".lower()
                 
-                if '�' in text_to_check or len(text_to_check) < 30: continue
-                if BLACKLIST_REGEX.search(text_to_check): continue
-                if not KEYWORDS_REGEX.search(text_to_check): continue
+                if '�' in text_to_check or len(text_to_check) < 30: 
+                    continue
+                
+                if BLACKLIST_REGEX.search(text_to_check): 
+                    print(f"DEBUG: ⏭️ Пропуск (черный список): {title[:30]}")
+                    continue
+                
+                if not KEYWORDS_REGEX.search(text_to_check): 
+                    print(f"DEBUG: ⏭️ Пропуск (нет ключевых слов): {title[:30]}")
+                    continue
 
-                print(f"🔥 Новость: {title[:40]}...")
+                print(f"🔥 Новость прошла фильтры: {title[:40]}...")
                 
                 news_embedding = get_embedding(title, token)
                 if news_embedding:
@@ -391,7 +438,7 @@ def main():
                     for old_url, old_emb in embeddings_history.items():
                         similarity = cosine_similarity(news_embedding, old_emb)
                         if similarity > SIMILARITY_THRESHOLD:
-                            print(f"⏭️ Пропуск (семантический дубль). Сходство: {similarity:.2f}")
+                            print(f"DEBUG: ⏭️ Пропуск (семантический дубль). Сходство: {similarity:.2f}")
                             is_duplicate = True
                             break
                     if is_duplicate: continue
@@ -400,14 +447,16 @@ def main():
 
                 category_header = detect_category(text_to_check)
                 final_text = rewrite_text(f"{title}. {description}", token)
-                if not final_text: continue
+                if not final_text: 
+                    print("DEBUG: ⏭️ Пропуск (GigaChat не смог переписать).")
+                    continue
                 
                 if original_percents:
                     rewritten_lower = final_text.lower()
                     for p in original_percents:
                         p_variants = [p, p.replace(',', '.'), p.replace('.', ',')]
                         if not any(variant in rewritten_lower for variant in p_variants):
-                            print(f"⏭️ Пропуск (фактчекинг): число {p}% не найдено.")
+                            print(f"DEBUG: ⏭️ Пропуск (фактчекинг): число {p}% не найдено.")
                             final_text = None
                             break
                 
@@ -419,7 +468,7 @@ def main():
                 success = send_photo(text_to_publish, image_bytes) if image_bytes else send_text(text_to_publish)
                 
                 if success:
-                    print("✅ Опубликовано!")
+                    print("DEBUG: ✅ Опубликовано!")
                     history[news_id] = datetime.now().isoformat()
                     save_json(history, HISTORY_FILE)
                     
@@ -433,7 +482,7 @@ def main():
                     new_posts_count += 1
                     time.sleep(4)
             except Exception as e:
-                print(f"Ошибка: {e}")
+                print(f"DEBUG: Ошибка при обработке: {e}")
                 continue
             if new_posts_count >= 1: return
 
