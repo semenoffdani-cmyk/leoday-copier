@@ -39,11 +39,14 @@ RSS_FEEDS = [
 def clean_text(text):
     if not text:
         return ""
-    # Удаляем все HTML-теги, чтобы они не сломали разметку Telegram
+    # Удаляем HTML-теги
     text = re.sub(r'<[^>]+>', '', text)
+    # Убираем лишние пробелы
     text = re.sub(r'\s+', ' ', text)
+    # Удаляем ссылки
     text = re.sub(r'https?://\S+', '', text)
-    text = html.escape(text) # Экранируем символы < и >
+    # Экранируем HTML-символы для Telegram
+    text = html.escape(text)
     return text.strip()
 
 def load_history():
@@ -51,8 +54,7 @@ def load_history():
         try:
             with open(HISTORY_FILE, 'r', encoding='utf-8') as f:
                 return json.load(f)
-        except Exception as e:
-            print(f"Ошибка чтения истории: {e}")
+        except Exception:
             return {}
     return {}
 
@@ -87,14 +89,9 @@ def get_gigachat_token():
         response = requests.post(url, headers=headers, data='scope=GIGACHAT_API_PERS', verify=False, timeout=30)
         
         if response.status_code == 200:
-            try:
-                return response.json().get('access_token')
-            except ValueError:
-                print(f"GigaChat вернул не JSON: {response.text[:100]}")
-                return None
+            return response.json().get('access_token')
         return None
-    except Exception as e:
-        print(f"Ошибка получения токена: {e}")
+    except Exception:
         return None
 
 def rewrite_text(text, token):
@@ -104,9 +101,11 @@ def rewrite_text(text, token):
         url = "https://gigachat.devices.sberbank.ru/api/v1/chat/completions"
         headers = {'Content-Type': 'application/json', 'Authorization': f'Bearer {token}'}
         
+        # УЖЕСТОЧЕННЫЙ ПРОМПТ: запрет на решетки, звездочки и заголовки
         prompt = (
             f"Ты — ведущий финансового канала 'QIVONZA | КАПИТАЛ'. Сделай из этой новости пост. "
-            f"Отвечай строго на три вопроса (без звездочек, скобок и markdown):\n"
+            f"Пиши сплошным текстом, без заголовков. СТРОГО ЗАПРЕЩЕНО использовать символы #, *, _ и квадратные скобки. "
+            f"Ответь на три вопроса (каждый с новой строки):\n"
             f"1. Что произошло?\n2. Что это меняет для обычного человека?\n3. За чем следить дальше?\n\n"
             f"Текст новости:\n{text}"
         )
@@ -114,28 +113,26 @@ def rewrite_text(text, token):
         payload = {
             "model": "GigaChat",
             "messages": [{"role": "user", "content": prompt}],
-            "temperature": 0.2, 
+            "temperature": 0.1, # Снижаем креативность, чтобы модель не выпендривалась с разметкой
             "max_tokens": 600   
         }
         
         response = requests.post(url, headers=headers, json=payload, verify=False, timeout=90)
         if response.status_code != 200:
-            print(f"Ошибка API GigaChat: {response.status_code}")
             return text
             
-        try:
-            result = response.json()
-        except ValueError:
-            return text
-            
+        result = response.json()
         if 'choices' in result:
             rewritten = result['choices'][0]['message']['content'].strip()
-            # Очищаем от любых случайных тегов
-            rewritten = re.sub(r'<[^>]+>', '', rewritten) 
-            return rewritten
+            
+            # ЖЕСТКАЯ ЗАЧИСТКА: удаляем любые решетки, звездочки и Markdown-теги
+            rewritten = re.sub(r'#+\s*', '', rewritten) # Убирает ## и ###
+            rewritten = re.sub(r'[*_`]', '', rewritten) 
+            rewritten = re.sub(r'<[^>]+>', '', rewritten)
+            
+            return rewritten.strip()
         return text
-    except Exception as e:
-        print(f"Исключение при рерайте: {e}")
+    except Exception:
         return text
 
 # =====================================================================
@@ -147,11 +144,12 @@ def generate_image_gigachat(prompt, token):
         url = "https://gigachat.devices.sberbank.ru/api/v1/chat/completions"
         headers = {'Content-Type': 'application/json', 'Authorization': f'Bearer {token}'}
         
+        # Усиленный промпт: просим абстракцию, чтобы не было текста
         payload = {
             "model": "GigaChat",
             "messages": [
                 {"role": "system", "content": "Ты — художник. Используй text2image. Верни только <img src=\"FILE_ID\"/>"},
-                {"role": "user", "content": f"Финансовый постер без текста. Тема: {prompt}. Сине-золотые тона, графики."}
+                {"role": "user", "content": f"Абстрактная финансовая 3D-иллюстрация. Тема: {prompt}. Сине-золотые тона, графики, монеты. Строго без текста, без букв, без надписей."}
             ],
             "function_call": "auto"
         }
@@ -159,11 +157,7 @@ def generate_image_gigachat(prompt, token):
         response = requests.post(url, headers=headers, json=payload, verify=False, timeout=90)
         if response.status_code != 200: return None
         
-        try:
-            result = response.json()
-        except ValueError:
-            return None
-            
+        result = response.json()
         if 'choices' in result:
             content = result['choices'][0]['message']['content']
             match = re.search(r'<img src="([^"]+)"', content)
@@ -178,11 +172,10 @@ def generate_image_gigachat(prompt, token):
         return None
 
 def generate_image_fallback(prompt):
-    """Резервный генератор. Добавлен User-Agent, чтобы сервер не блокировал запрос."""
     try:
-        safe_prompt = urllib.parse.quote(f"financial minimalistic poster, {prompt}, blue and gold colors, no text")
+        safe_prompt = urllib.parse.quote(f"abstract 3d financial background, {prompt}, blue and gold, no text, no letters")
         url = f"https://image.pollinations.ai/prompt/{safe_prompt}?width=1024&height=1024&nologo=true"
-        headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)'}
+        headers = {'User-Agent': 'Mozilla/5.0'}
         response = requests.get(url, headers=headers, timeout=40)
         if response.status_code == 200:
             return response.content
@@ -196,6 +189,7 @@ def generate_image_fallback(prompt):
 def send_photo(text, image_bytes):
     url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendPhoto"
     
+    # Если текст длиннее 1000 символов, отправляем фото и текст отдельно
     if len(text) > 1000:
         try:
             requests.post(url, data={"chat_id": CHAT_ID}, files={"photo": ("poster.jpg", image_bytes, "image/jpeg")}, timeout=30)
@@ -206,8 +200,6 @@ def send_photo(text, image_bytes):
     files = {"photo": ("poster.jpg", image_bytes, "image/jpeg")}
     try:
         res = requests.post(url, data=payload, files=files, timeout=30)
-        if not res.ok:
-            print(f"Ошибка Telegram (фото): {res.text[:100]}")
         return res.ok
     except: return False
 
@@ -216,8 +208,6 @@ def send_text(text):
     payload = {"chat_id": CHAT_ID, "text": text, "parse_mode": "HTML", "disable_web_page_preview": True}
     try:
         res = requests.post(url, json=payload, timeout=15)
-        if not res.ok:
-            print(f"Ошибка Telegram (текст): {res.text[:100]}")
         return res.ok
     except: return False
 
@@ -239,7 +229,10 @@ def main():
     for feed_url in RSS_FEEDS:
         print(f"Проверка: {feed_url}")
         try:
-            feed = feedparser.parse(feed_url)
+            # ИСПРАВЛЕНИЕ КОДИРОВКИ: скачиваем вручную и заставляем Python прочитать как UTF-8
+            resp = requests.get(feed_url, timeout=15)
+            resp.encoding = 'utf-8' 
+            feed = feedparser.parse(resp.content)
         except Exception as e:
             print(f"Ошибка чтения RSS: {e}")
             continue
@@ -268,7 +261,7 @@ def main():
                 image_bytes = generate_image_gigachat(title, token)
                 
                 if not image_bytes:
-                    print("GigaChat не смог. Резервный вариант...")
+                    print("Резервный генератор...")
                     image_bytes = generate_image_fallback(title)
                 
                 success = False
@@ -284,7 +277,7 @@ def main():
                     new_posts_count += 1
                     time.sleep(4)
             except Exception as e:
-                print(f"Ошибка при обработке новости: {e}")
+                print(f"Ошибка при обработке: {e}")
                 continue
                 
             if new_posts_count >= 3:
