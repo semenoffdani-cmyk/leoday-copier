@@ -27,9 +27,6 @@ if not BOT_TOKEN or not CHAT_ID:
 
 HISTORY_FILE = 'history.json'
 
-# =====================================================================
-# 📡 ИСТОЧНИКИ (RSS ЛЕНТЫ)
-# =====================================================================
 RSS_FEEDS = [
     'https://rssexport.rbc.ru/rbcnews/news/30/full.rss',
     'https://www.cbr.ru/rss/RssNews',
@@ -69,13 +66,10 @@ def save_history(history):
         print(f"Ошибка сохранения истории: {e}")
 
 def fix_title_case(text):
-    """Исправляет Заглавные Буквы В Каждом Слове на нормальный регистр"""
     lines = text.split('\n')
     fixed_lines = []
-    
     for line in lines:
         clean_line = line.strip()
-        
         if clean_line.startswith('<b>') and '</b>' in clean_line:
             match = re.search(r'<b>(.*?)</b>(.*)', clean_line)
             if match:
@@ -93,11 +87,10 @@ def fix_title_case(text):
                 if clean_line:
                     clean_line = clean_line[0].upper() + clean_line[1:]
             fixed_lines.append(clean_line)
-            
     return '\n'.join(fixed_lines)
 
 # =====================================================================
-# 🤖 GIGACHAT: ТЕКСТ И АВТОРИЗАЦИЯ
+# 🤖 GIGACHAT: ТЕКСТ
 # =====================================================================
 def get_gigachat_token():
     if not GIGA_CLIENT_ID or not GIGA_CLIENT_SECRET:
@@ -123,7 +116,7 @@ def get_gigachat_token():
 
 def rewrite_text(text, token):
     if not token or not text:
-        return text
+        return None # Возвращаем None, если нет токена или текста
     try:
         url = "https://gigachat.devices.sberbank.ru/api/v1/chat/completions"
         headers = {'Content-Type': 'application/json', 'Authorization': f'Bearer {token}'}
@@ -136,9 +129,8 @@ def rewrite_text(text, token):
                     "content": (
                         "Ты — профессиональный редактор финансового канала. "
                         "Твоя задача — написать пост строго по шаблону. "
-                        "Используй <b>жирный шрифт</b> только для трех заголовков (в шаблоне они уже есть). "
-                        "КРИТИЧЕСКИ ВАЖНО: Пиши обычным текстом. НЕ ПИШИ КАЖДОЕ СЛОВО С БОЛЬШОЙ БУКВЫ. "
-                        "Строго 1-2 предложения на каждый пункт, чтобы уложиться в лимит."
+                        "Используй <b>жирный шрифт</b> только для трех заголовков. "
+                        "КРИТИЧЕСКИ ВАЖНО: Пиши обычным текстом, понятным для обывателя. НЕ ПИШИ КАЖДОЕ СЛОВО С БОЛЬШОЙ БУКВЫ."
                     )
                 },
                 {
@@ -152,27 +144,35 @@ def rewrite_text(text, token):
                     )
                 }
             ],
-            "temperature": 0.2, 
+            "temperature": 0.3, 
             "max_tokens": 1000
         }
         
         response = requests.post(url, headers=headers, json=payload, verify=False, timeout=90)
+        
         if response.status_code != 200:
-            return text
+            print(f"⚠️ Ошибка API GigaChat: {response.status_code}")
+            return None
             
         result = response.json()
         if 'choices' in result:
             rewritten = result['choices'][0]['message']['content'].strip()
             rewritten = re.sub(r'[*_`#]', '', rewritten)
             rewritten = fix_title_case(rewritten)
+            
+            # Если нейросеть просто вернула исходный текст, считаем это ошибкой
+            if rewritten.lower() == text.lower():
+                print("⚠️ GigaChat вернул исходный текст без изменений.")
+                return None
+                
             return rewritten.strip()
-        return text
+        return None
     except Exception as e:
-        print(f"Ошибка рерайта: {e}")
-        return text
+        print(f"⚠️ Исключение при рерайте: {e}")
+        return None
 
 # =====================================================================
-# 🎨 ГЕНЕРАЦИЯ КАРТИНОК (ТОЛЬКО GIGACHAT / KANDINSKY)
+# 🎨 ГЕНЕРАЦИЯ КАРТИНОК (ТОЛЬКО GIGACHAT)
 # =====================================================================
 def generate_image_gigachat(token):
     if not token: return None
@@ -259,7 +259,6 @@ def main():
         print(f"\nПроверка ленты: {feed_url}")
         try:
             feed = feedparser.parse(feed_url)
-            print(f"Получено новостей из ленты: {len(feed.entries)}")
         except Exception as e:
             print(f"Ошибка чтения RSS: {e}")
             continue
@@ -286,16 +285,24 @@ def main():
 
                 print(f"🔥 Найдена новость: {title[:40]}...")
                 
+                # 1. Рерайт текста
                 final_text = rewrite_text(f"{title}. {description}", token)
                 
-                print("Генерация постера (GigaChat)...")
+                # 🚨 ЕСЛИ ТЕКСТ НЕ ПЕРЕПИСАН — ПРОПУСКАЕМ НОВОСТЬ
+                if not final_text:
+                    print("⏭️ Пропуск: GigaChat не смог обработать текст.")
+                    continue
+                
+                # 2. Генерация картинки
+                print("Генерация постера...")
                 image_bytes = generate_image_gigachat(token)
                 
+                # 3. Публикация
                 success = False
                 if image_bytes:
                     success = send_photo(final_text, image_bytes)
                 else:
-                    print("GigaChat не смог сгенерировать картинку. Отправляем только текст.")
+                    print("Картинка не сгенерирована. Отправляем только текст.")
                     success = send_text(final_text)
                 
                 if success:
