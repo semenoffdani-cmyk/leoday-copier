@@ -35,7 +35,7 @@ CERT_PATH = 'russiantrustedca.pem'
 VERIFY_SSL = CERT_PATH if os.path.exists(CERT_PATH) else True
 HISTORY_FILE = 'history.json'
 EMBEDDINGS_FILE = 'embeddings.json'
-RAW_LOG_FILE = 'raw_gigachat.txt' # Файл для сырых ответов
+RAW_LOG_FILE = 'raw_gigachat.txt'
 
 SIMILARITY_THRESHOLD = 0.85
 MAX_EMBEDDINGS_HISTORY = 50 
@@ -140,7 +140,6 @@ def save_json(data, filepath):
         print(f"Ошибка сохранения {filepath}: {e}")
 
 def save_raw_response(raw_text, source_url):
-    """Сохраняет сырой ответ GigaChat в файл для аудита."""
     try:
         with open(RAW_LOG_FILE, 'a', encoding='utf-8') as f:
             f.write(f"\n--- НОВОСТЬ: {source_url} ---\n")
@@ -216,7 +215,6 @@ def rewrite_text(text, token, source_url):
         url = "https://gigachat.devices.sberbank.ru/api/v1/chat/completions"
         headers = {'Content-Type': 'application/json', 'Authorization': f'Bearer {token}'}
         
-        # 🚨 ПРОМПТ: Просим GigaChat выдать ТОЛЬКО СУТЬ, без тегов и отступов
         payload = {
             "model": "GigaChat",
             "messages": [
@@ -243,7 +241,6 @@ def rewrite_text(text, token, source_url):
             
         raw_rewritten = response.json()['choices'][0]['message']['content'].strip()
         
-        # Сохраняем сырой ответ в файл для аудита
         save_raw_response(raw_rewritten, source_url)
         
         if any(root in raw_rewritten.lower() for root in ["генеративн", "облада", "мнени", "ограничен", "неправильн", "благодарим", "отказ"]): 
@@ -253,15 +250,12 @@ def rewrite_text(text, token, source_url):
             print("DEBUG: GigaChat выдал слишком короткий текст.")
             return None
         
-        # 🚨 ЖЕСТКОЕ ФОРМАТИРОВАНИЕ КОДОМ
-        # Разбиваем текст на абзацы по переносам строк
         paragraphs = [p.strip() for p in raw_rewritten.split('\n') if p.strip()]
         
         if len(paragraphs) < 3:
             print(f"DEBUG: GigaChat вернул не 3 абзаца (а {len(paragraphs)}).")
             return None
             
-        # Берем первые 3 абзаца и форматируем их
         final_text = (
             f"{paragraphs[0]}\n\n"
             f"<b>Что это значит?</b>\n\n"
