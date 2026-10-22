@@ -192,7 +192,7 @@ def cosine_similarity(vec1, vec2):
     return dot_product / (norm1 * norm2)
 
 # =====================================================================
-# 🤖 GIGACHAT: РЕРАЙТ ТЕКСТА (УВЕЛИЧЕН ОБЪЕМ)
+# 🤖 GIGACHAT: РЕРАЙТ ТЕКСТА
 # =====================================================================
 def rewrite_text(text, token, source_url):
     if not token or not text: return None
@@ -210,14 +210,18 @@ def rewrite_text(text, token, source_url):
                     "Если новость написана сложным канцелярским языком (например, пресс-релизы ЦБ, статистика), объясни её суть простыми словами."
                 )},
                 {"role": "user", "content": (
-                    f"Напиши ровно 3 абзаца текста, разделенных переносом строки. Без тегов, без жирного шрифта, без отступов.\n"
-                    f"1. Суть новости (3-4 предложения, не меньше 150 символов).\n"
+                    f"Напиши подробный пост. Используй следующую структуру (раздели абзацы ДВУМЯ переносами строки):\n\n"
+                    f"1. Суть новости (3-4 подробных предложения).\n"
                     f"2. Что это значит для кошелька или работы (2-3 предложения).\n"
                     f"3. Что дальше (1-2 предложения).\n\n"
+                    f"ПРИМЕР ХОРОШЕГО ОТВЕТА:\n"
+                    f"Банк России объявил о повышении ключевой ставки до 20% годовых. Это решение принято на фоне ускорения инфляции и ослабления рубля. Регулятор отметил, что ужесточение денежно-кредитной политики необходимо для стабилизации цен.\n\n"
+                    f"Для обычных граждан это означает, что кредиты и ипотека станут дороже. Однако вклады и накопительные счета принесут больше дохода. Банкам придется пересмотреть условия по своим продуктам.\n\n"
+                    f"В дальнейшем стоит следить за уровнем инфляции и заявлениями ЦБ. Это покажет, как долго продлится период высоких ставок.\n\n"
                     f"Текст новости:\n{text}"
                 )}
             ],
-            "temperature": 0.3, "max_tokens": 1500
+            "temperature": 0.3, "max_tokens": 2000
         }
         
         response = SESSION.post(url, headers=headers, json=payload, verify=VERIFY_SSL, timeout=90)
@@ -229,11 +233,20 @@ def rewrite_text(text, token, source_url):
         if len(raw_rewritten) < 50: 
             return None
         
-        paragraphs = [p.strip() for p in raw_rewritten.split('\n') if p.strip()]
+        paragraphs = [p.strip() for p in re.split(r'\n\s*\n', raw_rewritten) if p.strip()]
         
-        if len(paragraphs) < 2:
-            return None
-            
+        if len(paragraphs) < 3:
+            paragraphs = [p.strip() for p in raw_rewritten.split('\n') if p.strip()]
+        
+        if len(paragraphs) < 3:
+            sentences = re.split(r'(?<=[.!?])\s+', raw_rewritten)
+            if len(sentences) >= 4:
+                chunk_size = len(sentences) // 3
+                p1 = ' '.join(sentences[:chunk_size+1])
+                p2 = ' '.join(sentences[chunk_size+1:chunk_size*2+1])
+                p3 = ' '.join(sentences[chunk_size*2+1:])
+                paragraphs = [p1, p2, p3]
+
         for i in range(len(paragraphs)):
             paragraphs[i] = re.sub(r'^(Что дальше\?|Что это значит\?)\s*', '', paragraphs[i]).strip()
 
@@ -245,19 +258,21 @@ def rewrite_text(text, token, source_url):
                 f"<b>Что дальше?</b>\n\n"
                 f"{paragraphs[2]}"
             )
-        else:
+        elif len(paragraphs) == 2:
             final_text = (
                 f"{paragraphs[0]}\n\n"
                 f"<b>Что это значит?</b>\n\n"
                 f"{paragraphs[1]}"
             )
+        else:
+            return None
         
         return final_text.strip()
     except Exception: 
         return None
 
 # =====================================================================
-# 🎨 GIGACHAT: ГЕНЕРАЦИЯ КАРТИНОК
+# 🎨 GIGACHAT: ГЕНЕРАЦИЯ КАРТИНОК (ЭКРАНЫ МОЖНО, ТЕКСТА НЕЛЬЗЯ)
 # =====================================================================
 def generate_image_gigachat(news_title, news_description, token):
     if not token: return None
@@ -267,14 +282,17 @@ def generate_image_gigachat(news_title, news_description, token):
         
         base_style = "Cinematic lighting, Octane render, 8k resolution, minimalist corporate style, deep navy blue and metallic gold colors, highly detailed."
         
+        # Берем контекст новости
         context = f"{news_title}. {news_description}"[:300]
         
+        # Разрешаем экраны/мониторы/документы, но требуем, чтобы они были пустыми
         prompt = (
             f"Visualize this news as a high-quality 3D illustration:\n"
             f"---\n{context}\n---\n\n"
             f"STYLE: {base_style}.\n"
-            f"STRICT PROHIBITIONS: DO NOT DRAW ANY TEXT, LETTERS, WORDS, NUMBERS, LOGOS, MONITORS, SCREENS, CHARTS, GRAPHS, DOCUMENTS, BOOKS, OR SIGNS.\n"
-            f"INSTRUCTION: Create a conceptual visual metaphor. For example, for 'oil prices' draw glowing golden oil drops; for 'banking' draw a futuristic vault; for 'AI' draw a glowing microchip. Focus on abstract geometric shapes, spheres, and glowing particles."
+            f"STRICT RULE: DO NOT DRAW ANY TEXT, LETTERS, ALPHABET, WORDS, NUMBERS, LOGOS, SIGNS, OR WATERMARKS.\n"
+            f"IMPORTANT: You MAY include screens, monitors, charts, or documents, but they MUST be COMPLETELY BLANK - empty glowing screens with no labels, empty documents with no writing, charts with no numbers or axis labels.\n"
+            f"Create a conceptual visual metaphor with clean visual storytelling."
         )
 
         payload = {
@@ -386,6 +404,7 @@ def main():
                 
                 if not final_text: continue
 
+                # Генерируем картинку на основе смысла новости (экраны можно, текст нельзя)
                 image_bytes = generate_image_gigachat(title, description, token)
                 text_to_publish = category_header + final_text + f"\n\n🔗 <a href='{news_id}'>Источник</a>"
                 
