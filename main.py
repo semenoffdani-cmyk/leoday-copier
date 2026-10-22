@@ -6,6 +6,7 @@ import re
 import uuid
 import base64
 import urllib3
+import time
 from datetime import datetime
 
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
@@ -21,11 +22,11 @@ GIGA_CLIENT_SECRET = os.environ.get('GIGACHAT_CLIENT_SECRET')
 HISTORY_FILE = 'history.json'
 
 # =====================================================================
-# 📡 ИСТОЧНИКИ (RSS ЛЕНТЫ)
+# 📡 ИСТОЧНИКИ (RSS ЛЕНТЫ ПЕРВОИСТОЧНИКОВ)
 # =====================================================================
 RSS_FEEDS = [
-    'https://rssexport.rbc.ru/rbcnews/news/30/full.rss',      # РБК
-    'https://www.cbr.ru/rss/RssNews',                         # ЦБ РФ
+    'https://rssexport.rbc.ru/rbcnews/news/30/full.rss',      # РБК (Экономика и все новости)
+    'https://www.cbr.ru/rss/RssNews',                         # Пресс-релизы ЦБ РФ
     'https://ria.ru/export/rss2/archive/index.xml'            # РИА Новости
 ]
 
@@ -44,7 +45,7 @@ def clean_text(text):
     return text.strip()
 
 # =====================================================================
-# 🤖 GIGACHAT
+# 🤖 GIGACHAT (АВТОРИЗАЦИЯ И РЕРАЙТ)
 # =====================================================================
 def get_gigachat_token():
     if not GIGA_CLIENT_ID or not GIGA_CLIENT_SECRET:
@@ -102,6 +103,7 @@ def rewrite_text(text, token):
         
         if 'choices' in result:
             rewritten = result['choices'][0]['message']['content'].strip()
+            # Финальная зачистка от случайных символов разметки
             return re.sub(r'[*_`#]', '', rewritten)
         return text
     except Exception as e:
@@ -109,7 +111,7 @@ def rewrite_text(text, token):
         return text
 
 # =====================================================================
-# ✈️ ПУБЛИКАЦИЯ В TELEGRAM (Через Bot API)
+# ✈️ ПУБЛИКАЦИЯ В TELEGRAM
 # =====================================================================
 def send_to_telegram(text):
     url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
@@ -129,7 +131,7 @@ def send_to_telegram(text):
         return False
 
 # =====================================================================
-# 🚀 ОСНОВНАЯ ЛОГИКА
+# 📦 РАБОТА С ИСТОРИЕЙ (ФАЙЛ history.json)
 # =====================================================================
 def load_history():
     if os.path.exists(HISTORY_FILE):
@@ -144,6 +146,9 @@ def save_history(history):
     with open(HISTORY_FILE, 'w', encoding='utf-8') as f:
         json.dump(history, f, ensure_ascii=False, indent=2)
 
+# =====================================================================
+# 🚀 ОСНОВНАЯ ЛОГИКА
+# =====================================================================
 def main():
     history = load_history()
     token = get_gigachat_token()
@@ -153,13 +158,19 @@ def main():
     
     new_posts_count = 0
 
+    # 🔑 Слова, которые ОБЯЗАТЕЛЬНО должны быть в новости для нашего канала
+    FINANCIAL_KEYWORDS = [
+        'ставк', 'рубл', 'инфляц', 'цб', 'банк', 'акци', 'нефт', 'бюджет', 
+        'налог', 'финанс', 'кредит', 'вклад', 'бирж', 'доллар', 'евро', 
+        'рынок', 'экономик', 'компан', 'убыт', 'прибыл', 'тариф', 'цен'
+    ]
+
     for feed_url in RSS_FEEDS:
         print(f"Проверка ленты: {feed_url}")
         feed = feedparser.parse(feed_url)
         
-        # Берем последние 3 новости из каждой ленты
-        for entry in feed.entries[:3]:
-            # Создаем уникальный ID новости (ссылка + дата)
+        # Берем больше новостей (10), чтобы фильтру было из чего выбирать
+        for entry in feed.entries[:10]:
             news_id = entry.link
             
             if news_id in history:
@@ -167,15 +178,24 @@ def main():
                 
             title = clean_text(entry.title)
             description = clean_text(getattr(entry, 'description', ''))
-            full_text = f"{title}. {description}"
             
-            if len(full_text) < 20:
+            # Приводим к нижнему регистру для удобного поиска ключевых слов
+            text_to_check = f"{title}. {description}".lower()
+            
+            if len(text_to_check) < 20:
+                continue
+
+            # 🚨 ФИЛЬТР: Проверяем, есть ли финансовые слова в тексте
+            is_financial = any(keyword in text_to_check for keyword in FINANCIAL_KEYWORDS)
+            
+            if not is_financial:
+                print(f"⏭️ Пропуск (не по теме): {title[:40]}...")
                 continue
 
             print(f"Новая новость: {title[:50]}...")
             
             # 1. Рерайт через GigaChat
-            final_text = rewrite_text(full_text, token)
+            final_text = rewrite_text(f"{title}. {description}", token)
             
             # 2. Публикация
             if send_to_telegram(final_text):
@@ -183,12 +203,12 @@ def main():
                 history[news_id] = datetime.now().isoformat()
                 save_history(history)
                 new_posts_count += 1
-                # Пауза между постами, чтобы не спамить
-                import time
+                # Пауза между постами, чтобы не спамить и не ловить лимиты
                 time.sleep(3)
             else:
                 print("❌ Не удалось опубликовать.")
                 
+            # За один запуск публикуем максимум 3 поста, чтобы не заваливать канал
             if new_posts_count >= 3:
                 print("Достигнут лимит постов на этот запуск.")
                 return
