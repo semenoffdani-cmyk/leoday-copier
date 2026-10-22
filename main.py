@@ -272,9 +272,9 @@ def rewrite_text(text, token, source_url):
         return None
 
 # =====================================================================
-# 🎨 GIGACHAT: ГЕНЕРАЦИЯ КАРТИНОК (ЭКРАНЫ МОЖНО, ТЕКСТА НЕЛЬЗЯ)
+# 🎨 GIGACHAT: ГЕНЕРАЦИЯ КАРТИНОК (С ЛОГОТИПОМ QIVONZA)
 # =====================================================================
-def generate_image_gigachat(news_title, news_description, token):
+def generate_image_gigachat(news_text, token):
     if not token: return None
     try:
         url = "https://gigachat.devices.sberbank.ru/api/v1/chat/completions"
@@ -282,17 +282,35 @@ def generate_image_gigachat(news_title, news_description, token):
         
         base_style = "Cinematic lighting, Octane render, 8k resolution, minimalist corporate style, deep navy blue and metallic gold colors, highly detailed."
         
-        # Берем контекст новости
-        context = f"{news_title}. {news_description}"[:300]
+        text_lower = news_text.lower()
         
-        # Разрешаем экраны/мониторы/документы, но требуем, чтобы они были пустыми
+        # Определяем визуальную тему
+        if any(w in text_lower for w in ['нефт', 'газ', 'энергет', 'топлив', 'дизел']):
+            visual_topic = "Macro 3D shot of a glowing golden oil drop suspended in mid-air, surrounded by sleek glass pipelines and glowing blue energy"
+        elif any(w in text_lower for w in ['банк', 'цб', 'кредит', 'вклад', 'сбербанк', 'втб']):
+            visual_topic = "3D render of a modern bank vault door slightly open, glowing golden coins floating out, dark blue background"
+        elif any(w in text_lower for w in ['ипотек', 'дом', 'жкх', 'недвиж', 'квартир']):
+            visual_topic = "Modern 3D architectural render of a luxury minimalist house made of glass and gold accents, floating in a dark blue space"
+        elif any(w in text_lower for w in ['нейросет', 'чип', 'робот', 'технолог', 'apple', 'openai']):
+            visual_topic = "Macro 3D shot of a glowing golden microchip on a dark blue circuit board with neon light pulses"
+        elif any(w in text_lower for w in ['акци', 'бирж', 'индекс', 'рынок', 'ставк']):
+            visual_topic = "Minimalist 3D holographic stock market chart with glowing golden arrows pointing upward"
+        elif any(w in text_lower for w in ['крипт', 'биткоин', 'блокчейн']):
+            visual_topic = "Glossy 3D render of a floating golden Bitcoin symbol surrounded by glowing blue digital blocks"
+        elif any(w in text_lower for w in ['рост', 'увеличен', 'прибыл', 'вырос']):
+            visual_topic = "Abstract 3D golden arrows pointing upwards among glowing blue geometric shapes"
+        elif any(w in text_lower for w in ['санкц', 'запрет', 'снижен', 'падени']):
+            visual_topic = "Abstract 3D golden downward arrows crashing into a glowing blue glass wall"
+        else:
+            visual_topic = "Abstract 3D financial background with glowing blue and gold geometric shapes, floating coins, and upward arrows"
+
+        # Разрешаем текст, но ТОЛЬКО "QIVONZA"
         prompt = (
-            f"Visualize this news as a high-quality 3D illustration:\n"
-            f"---\n{context}\n---\n\n"
-            f"STYLE: {base_style}.\n"
-            f"STRICT RULE: DO NOT DRAW ANY TEXT, LETTERS, ALPHABET, WORDS, NUMBERS, LOGOS, SIGNS, OR WATERMARKS.\n"
-            f"IMPORTANT: You MAY include screens, monitors, charts, or documents, but they MUST be COMPLETELY BLANK - empty glowing screens with no labels, empty documents with no writing, charts with no numbers or axis labels.\n"
-            f"Create a conceptual visual metaphor with clean visual storytelling."
+            f"{visual_topic}. {base_style}. "
+            f"The ONLY allowed text is the word 'QIVONZA' written in elegant 3D golden letters. "
+            f"Place 'QIVONZA' prominently as a glowing neon sign, a 3D logo on a screen, or floating in the background. "
+            f"NO OTHER TEXT, NO OTHER LETTERS, NO WORDS, NO NUMBERS, NO WATERMARKS. "
+            f"Focus on high-quality abstract 3D shapes, spheres, and glowing particles."
         )
 
         payload = {
@@ -404,8 +422,7 @@ def main():
                 
                 if not final_text: continue
 
-                # Генерируем картинку на основе смысла новости (экраны можно, текст нельзя)
-                image_bytes = generate_image_gigachat(title, description, token)
+                image_bytes = generate_image_gigachat(text_to_check, token)
                 text_to_publish = category_header + final_text + f"\n\n🔗 <a href='{news_id}'>Источник</a>"
                 
                 success = send_photo(text_to_publish, image_bytes) if image_bytes else send_text(text_to_publish)
