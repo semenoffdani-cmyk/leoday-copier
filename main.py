@@ -14,7 +14,7 @@ from datetime import datetime
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 # =====================================================================
-# 🔒 БЕЗОПАСНЫЕ НАСТРОЙКИ (P0 из плана)
+# 🔒 БЕЗОПАСНЫЕ НАСТРОЙКИ
 # =====================================================================
 BOT_TOKEN = os.environ.get('BOT_TOKEN')
 CHAT_ID = os.environ.get('TARGET_CHANNEL')
@@ -26,9 +26,7 @@ if not BOT_TOKEN or not CHAT_ID:
     exit(1)
 
 CERT_PATH = 'russiantrustedca.pem'
-# ИСПРАВЛЕНИЕ P0: Если сертификата нет, используем системные (True), а не отключаем проверку (False)
 VERIFY_SSL = CERT_PATH if os.path.exists(CERT_PATH) else True
-
 HISTORY_FILE = 'history.json'
 
 RSS_FEEDS = [
@@ -94,22 +92,27 @@ def fix_title_case(text):
     return '\n'.join(fixed_lines)
 
 # =====================================================================
-# 🏷️ СИСТЕМА РУБРИК (P1 из плана)
+# 🏷️ УМНАЯ СИСТЕМА РУБРИК (Строгая проверка)
 # =====================================================================
 def detect_category(text):
     text = text.lower()
     
-    # Технологии (15%)
-    if any(w in text for w in ['ии', 'нейросет', 'чип', 'робот', 'технолог', 'apple', 'openai', 'смартфон', 'гаджет']):
+    # 1. ЭНЕРГЕТИКА (Проверяем в первую очередь, так как это частая тема)
+    if any(w in text for w in ['нефт', 'газ', 'энергет', 'топлив', 'дизел', 'бензин', 'баррел']):
+        return "🛢️ <b>QIVONZA | ЭНЕРГЕТИКА</b>\n\n"
+
+    # 2. ТЕХНОЛОГИИ (Ищем \bии\b как отдельное слово, чтобы не ловить "энергии")
+    tech_keywords = ['нейросет', 'искусственн', 'чип', 'робот', 'технолог', 'apple', 'openai', 'смартфон', 'гаджет', 'ит-', 'айти', 'кибербезопасн']
+    if any(w in text for w in tech_keywords) or re.search(r'\bии\b', text):
         return "🤖 <b>QIVONZA | ТЕХНОЛОГИИ</b>\n\n"
-        
-    # Деньги (30%)
-    elif any(w in text for w in ['вклад', 'кредит', 'ипотек', 'зарплат', 'пенси', 'жкх', 'банк', 'рубл', 'доллар', 'цен']):
+
+    # 3. ДЕНЬГИ (Личные финансы, банки, валюты)
+    money_keywords = ['вклад', 'кредит', 'ипотек', 'зарплат', 'пенси', 'жкх', 'рубл', 'доллар', 'евро', 'сбербанк', 'втб', 'тинькофф', 'банк']
+    if any(w in text for w in money_keywords):
         return "💸 <b>QIVONZA | ДЕНЬГИ</b>\n\n"
-        
-    # Экономика (40%) - по умолчанию для всего остального
-    else:
-        return "📊 <b>QIVONZA | ЭКОНОМИКА</b>\n\n"
+
+    # 4. ЭКОНОМИКА (По умолчанию, если ничего выше не совпало)
+    return "📊 <b>QIVONZA | ЭКОНОМИКА</b>\n\n"
 
 # =====================================================================
 # 🤖 GIGACHAT
@@ -221,18 +224,19 @@ def generate_image_gigachat(news_text, token):
         text_lower = news_text.lower()
         selected_theme = THEME_PROMPTS['default']
 
-        if any(w in text_lower for w in ['нефт', 'газ', 'энерг', 'топлив']):
+        # Строгий приоритет для картинок
+        if any(w in text_lower for w in ['нефт', 'газ', 'энергет', 'топлив', 'дизел', 'баррел']):
             selected_theme = THEME_PROMPTS['energy']
-        elif any(w in text_lower for w in ['банк', 'цб', 'кредит', 'вклад', 'сбербанк']):
-            selected_theme = THEME_PROMPTS['bank']
-        elif any(w in text_lower for w in ['ии', 'нейросет', 'чип', 'робот', 'технолог']):
-            selected_theme = THEME_PROMPTS['tech']
         elif any(w in text_lower for w in ['ипотек', 'дом', 'жкх', 'недвиж', 'квартир']):
             selected_theme = THEME_PROMPTS['real_estate']
         elif any(w in text_lower for w in ['крипт', 'биткоин', 'блокчейн']):
             selected_theme = THEME_PROMPTS['crypto']
         elif any(w in text_lower for w in ['самолет', 'авиа', 'жд', 'поезд', 'транспорт']):
             selected_theme = THEME_PROMPTS['transport']
+        elif any(w in text_lower for w in ['банк', 'цб', 'кредит', 'вклад', 'сбербанк', 'втб']):
+            selected_theme = THEME_PROMPTS['bank']
+        elif any(w in text_lower for w in ['нейросет', 'искусственн', 'чип', 'робот', 'технолог', 'apple', 'openai']) or re.search(r'\bии\b', text_lower):
+            selected_theme = THEME_PROMPTS['tech']
         elif any(w in text_lower for w in ['акци', 'бирж', 'индекс', 'рынок', 'ставк']):
             selected_theme = THEME_PROMPTS['market']
         elif any(w in text_lower for w in ['рубл', 'доллар', 'евро', 'деньг', 'цен']):
@@ -321,7 +325,8 @@ def main():
         'нейросет', 'искусственн', 'технолог', 'робот', 'цифров', 'гаджет', 
         'смартфон', 'openai', 'chatgpt', 'яндекс', 'сбер', 'айти', 'ит-', 'ии ',
         'чип', 'процессор', 'софт', 'приложени', 'кибербезопасн', 'сервер', 'облак', 'импортозамещен',
-        'apple', 'tesla', 'microsoft', 'google', 'amazon', 'meta', 'nvidia', 'samsung', 'intel', 'spacex'
+        'apple', 'tesla', 'microsoft', 'google', 'amazon', 'meta', 'nvidia', 'samsung', 'intel', 'spacex',
+        'энергет', 'дизел', 'топлив', 'баррел'
     ]
 
     BLACKLIST_KEYWORDS = [
