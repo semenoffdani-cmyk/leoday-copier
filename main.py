@@ -41,7 +41,7 @@ RSS_FEEDS = [
     'https://ria.ru/export/rss2/archive/index.xml'
 ]
 
-# 🚫 ЧЕРНЫЙ СПИСОК
+# 🚫 МАКСИМАЛЬНЫЙ ЧЕРНЫЙ СПИСОК
 BLACKLIST_REGEX = re.compile(
     r'тренер|матч|гол|футбол|хоккей|спорт|чемпионат|кубок|олимпиад|клуб|игрок|трусов|'
     r'теннис|бокс|ufc|mma|фигурное|биатлон|плавание|футболист|хоккеист|медаль|турнир|'
@@ -84,24 +84,24 @@ SESSION.mount('https://', HTTPAdapter(max_retries=retries))
 # =====================================================================
 # 🧹 ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ
 # =====================================================================
+def remove_garbage(text):
+    known_brands = {'apple', 'tesla', 'microsoft', 'google', 'amazon', 'meta', 'nvidia', 'samsung', 'intel', 'spacex', 'openai', 'chatgpt'}
+    def replace_word(match):
+        word = match.group(0)
+        if word.lower() in known_brands: return word
+        return ''
+    
+    text = re.sub(r'\b[a-zA-Z]{4,}\b', replace_word, text)
+    text = re.sub(r'(?i)amburg\w*', '', text) # Жесткая зачистка конкретного бага
+    return text
+
 def clean_text(text):
     if not text: return ""
     text = re.sub(r'<[^>]+>', '', text)
     text = html.unescape(text)
     text = re.sub(r'\s+', ' ', text)
     text = re.sub(r'https?://\S+', '', text)
-    
-    known_brands = {'apple', 'tesla', 'microsoft', 'google', 'amazon', 'meta', 'nvidia', 'samsung', 'intel', 'spacex', 'openai', 'chatgpt'}
-    def replace_word(match):
-        word = match.group(0)
-        return word if word.lower() in known_brands else ''
-    
-    # Удаляем все английские слова, кроме брендов
-    text = re.sub(r'\b[a-zA-Z]{4,}\b', replace_word, text)
-    
-    # 🚨 ХАРДКОРНАЯ ЗАЧИСТКА ОТ AMBURG (Игнорируем регистр и любые приставки)
-    text = re.sub(r'(?i)amburg\w*', '', text)
-    
+    text = remove_garbage(text) 
     return html.escape(text).strip()
 
 def load_json(filepath):
@@ -191,7 +191,7 @@ def cosine_similarity(vec1, vec2):
     return dot_product / (norm1 * norm2)
 
 # =====================================================================
-# 🤖 GIGACHAT: РЕРАЙТ ТЕКСТА (ИСПРАВЛЕННЫЕ ОТСТУПЫ)
+# 🤖 GIGACHAT: РЕРАЙТ ТЕКСТА (ИДЕАЛЬНАЯ СТРУКТУРА)
 # =====================================================================
 def rewrite_text(text, token):
     if not token or not text: return None
@@ -208,12 +208,10 @@ def rewrite_text(text, token):
                     "Если новость НЕ ОТНОСИТСЯ к экономике, финансам, бизнесу или технологиям, напиши ровно одно слово: ОТКАЗ."
                 )},
                 {"role": "user", "content": (
-                    f"Напиши пост строго по этому шаблону (не добавляй лишних пустых строк!):\n\n"
-                    f"[1-2 предложения СУТИ новости, БЕЗ заголовков]\n"
-                    f"<b>Что это значит?</b>\n"
-                    f"[1-2 предложения о влиянии на кошелек или работу]\n"
-                    f"<b>Что дальше?</b>\n"
-                    f"[1 предложение о том, на какой показатель смотреть]\n\n"
+                    f"Напиши пост строго по этому шаблону (не добавляй ничего лишнего):\n\n"
+                    f"[1-2 предложения СУТИ новости]\n\n"
+                    f"<b>Что это значит?</b>\n\n[1-2 предложения о влиянии на кошелек или работу]\n\n"
+                    f"<b>Что дальше?</b>\n\n[1 предложение о том, на какой показатель смотреть]\n\n"
                     f"Текст новости:\n{text}"
                 )}
             ],
@@ -232,19 +230,16 @@ def rewrite_text(text, token):
         # 2. Исправляем регистр
         rewritten = fix_title_case(rewritten)
         
-        # 3. ЖЕСТКАЯ ЗАМЕНА ЗАГОЛОВКОВ
+        # 🚨 3. ГЕНИАЛЬНАЯ ФИКСАЦИЯ СТРУКТУРЫ
         rewritten = re.sub(r'(?i)что это значит\?', '<b>Что это значит?</b>', rewritten)
         rewritten = re.sub(r'(?i)что дальше\?', '<b>Что дальше?</b>', rewritten)
         
-        # 🚨 4. ФИКС ОТСТУПОВ (Убираем всё лишнее)
-        # Убираем все пробелы и переносы перед тегом
-        rewritten = re.sub(r'\s*<b>', '\n<b>', rewritten)
-        # Ставим ровно 2 переноса после тега
-        rewritten = re.sub(r'</b>\s*', '</b>\n\n', rewritten)
-        # Заменяем 3 и более переносов строк на 2 (убираем гигантские дыры)
-        rewritten = re.sub(r'\n{3,}', '\n\n', rewritten)
+        # Принудительно ставим ДВА переноса строки перед каждым жирным заголовком
+        rewritten = re.sub(r'\s*<b>', '\n\n<b>', rewritten)
         
-        # Убираем возможные пустые строки в самом начале и в конце
+        # И ДВА переноса строки после закрывающего тега </b>
+        rewritten = re.sub(r'</b>\s*', '</b>\n\n', rewritten)
+        
         return rewritten.strip()
     except Exception: return None
 
