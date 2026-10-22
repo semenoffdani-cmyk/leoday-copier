@@ -32,7 +32,6 @@ VERIFY_SSL = CERT_PATH if os.path.exists(CERT_PATH) else True
 HISTORY_FILE = 'history.json'
 EMBEDDINGS_FILE = 'embeddings.json'
 
-# Порог семантического сходства (0.85 = 85% схожести)
 SIMILARITY_THRESHOLD = 0.85
 MAX_EMBEDDINGS_HISTORY = 50 
 
@@ -42,33 +41,26 @@ RSS_FEEDS = [
     'https://ria.ru/export/rss2/archive/index.xml'
 ]
 
-# 🚫 МАКСИМАЛЬНЫЙ ЧЕРНЫЙ СПИСОК (Фильтр мусора и защита от отказов ИИ)
+# 🚫 МАКСИМАЛЬНЫЙ ЧЕРНЫЙ СПИСОК
 BLACKLIST_REGEX = re.compile(
-    # Спорт
     r'тренер|матч|гол|футбол|хоккей|спорт|чемпионат|кубок|олимпиад|клуб|игрок|трусов|'
     r'теннис|бокс|ufc|mma|фигурное|биатлон|плавание|футболист|хоккеист|медаль|турнир|'
-    # Криминал и ЧП
     r'погиб|убий|дтп|пожар|мчс|полици|суд|арест|взрыв|стрельб|теракт|мошенник|кража|ограблен|'
     r'наркотик|изнасилован|педофил|тюрьма|колония|приговор|прокурор|адвокат|утонул|госпитализирован|'
-    # Погода и природа
     r'погод|ураган|наводнен|паводок|землетрясен|циклон|шторм|гололед|снегопад|тайфун|цунами|'
-    # Шоу-бизнес и блогеры
     r'шоу-бизнес|знаменитост|актер|певиц|развод|звезд|сериал|концерт|фестивал|инстаграм|тикток|блогер|скандал|'
     r'свадьба|беременна|родила|пластика|ютуб|хайп|'
-    # Желтуха и нерелевантное
     r'шок|сенсац|ужас|эксклюзив|гороскоп|астролог|рецепт|диет|похуден|отношени|коронавирус|'
     r'вакцин|грипп|заболеваемост|эпидеми|симптом|'
-    # Политика и геополитика (Защита от отказов GigaChat)
     r'мобилизац|войн|санкц|спецоперац|трамп|байден|путин|госдум|депутат|оппозиц|митинг|'
     r'лгбт|навальн|мигрант|религи|церковь|бпла|атак|сбит|ракет|украин|дмитриев|воробьев|мид|'
     r'нато|выборы|конгресс|сенат|парламент|уголовн|следствен|пострадав|жертв|эвакуац|обнал|'
     r'отмыван|коррупц|взятк|пентагон|госдеп|кремль|белый дом|губернатор|мэр|мэрия|'
-    # Транспорт и бытовуха
     r'самокат|велосипед|парковк|тротуар|пешеход|прорыв трубы|коммунальная авария', 
     re.IGNORECASE
 )
 
-# ✅ БЕЛЫЙ СПИСОК (Глобальный триггер для поиска новостей)
+# ✅ БЕЛЫЙ СПИСОК
 KEYWORDS_REGEX = re.compile(
     r'ставк|рубл|инфляц|цб |банк|акци|нефт|бюджет|налог|финанс|кредит|вклад|бирж|доллар|'
     r'евро|рынок|экономик|компан|убыт|прибыл|тариф|цен|рецесс|дефляц|профицит|дефицит|'
@@ -85,7 +77,6 @@ KEYWORDS_REGEX = re.compile(
     r'фарм|медицин|труд|безработ|персонал|кадр|миграц|логистик|транспорт|стройк|недвижим', re.IGNORECASE
 )
 
-# Настройка сессии с автоматическими повторными попытками
 SESSION = requests.Session()
 retries = Retry(total=3, backoff_factor=1, status_forcelist=[429, 500, 502, 503, 504])
 SESSION.mount('https://', HTTPAdapter(max_retries=retries))
@@ -94,15 +85,11 @@ SESSION.mount('https://', HTTPAdapter(max_retries=retries))
 # 🧹 ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ
 # =====================================================================
 def remove_garbage(text):
-    """Удаляет случайные английские обрывки (типа 'amburg'), но оставляет известные бренды."""
     known_brands = {'apple', 'tesla', 'microsoft', 'google', 'amazon', 'meta', 'nvidia', 'samsung', 'intel', 'spacex', 'openai', 'chatgpt'}
-    
     def replace_word(match):
         word = match.group(0)
-        if word.lower() in known_brands:
-            return word
+        if word.lower() in known_brands: return word
         return ''
-    
     return re.sub(r'\b[a-zA-Z]{4,}\b', replace_word, text)
 
 def clean_text(text):
@@ -156,7 +143,6 @@ def fix_title_case(text):
 # 🏷️ УМНАЯ СИСТЕМА РУБРИК
 # =====================================================================
 def detect_category(text):
-    # Приоритет: Бизнес/Промышленность > Энергетика > Личные деньги > Технологии > Экономика
     if re.search(r'промышленн|завод|станкостроен|производств|фабрик|сельхоз|агро|туризм|отел|ритейл|маркетплейс|бизнес|компан|предпринимат', text, re.IGNORECASE):
         return "🏭 <b>БИЗНЕС И ПРОМЫШЛЕННОСТЬ</b>\n\n"
     elif re.search(r'нефт|газ|энергет|топлив|дизел|бензин|баррел|уголь|опек', text, re.IGNORECASE):
@@ -220,6 +206,7 @@ def rewrite_text(text, token):
                 )},
                 {"role": "user", "content": (
                     f"Напиши пост строго по этому шаблону (не добавляй ничего лишнего):\n\n"
+                    f"<b>Что произошло?</b>\n\n[1-2 предложения сути]\n\n"
                     f"<b>Что это значит?</b>\n\n[1-2 предложения о влиянии на кошелек или работу]\n\n"
                     f"<b>Что дальше?</b>\n\n[1 предложение о том, на какой показатель смотреть]\n\n"
                     f"Текст новости:\n{text}"
@@ -230,11 +217,19 @@ def rewrite_text(text, token):
         response = SESSION.post(url, headers=headers, json=payload, verify=VERIFY_SSL, timeout=90)
         if response.status_code != 200: return None
         rewritten = response.json()['choices'][0]['message']['content'].strip()
+        
+        # Защита от отказов
         if any(root in rewritten.lower() for root in ["генеративн", "облада", "мнени", "ограничен", "неправильн", "благодарим", "отказ"]): return None
         if len(rewritten) < 50: return None
+        
         rewritten = re.sub(r'[*_`#]', '', rewritten)
         rewritten = fix_title_case(rewritten)
-        return re.sub(r'</b>\s*', '</b>\n\n', rewritten).strip()
+        
+        # 🚨 ЖЕСТКАЯ ФИКСАЦИЯ ОТСТУПОВ И ЖИРНОГО ШРИФТА (Даже если ИИ забыл)
+        rewritten = re.sub(r'(Что произошло\?|Что это значит\?|Что дальше\?)', r'<b>\1</b>', rewritten)
+        rewritten = re.sub(r'</b>\s*', '</b>\n\n', rewritten)
+        
+        return rewritten.strip()
     except Exception: return None
 
 # =====================================================================
@@ -350,7 +345,6 @@ def main():
 
                 print(f"🔥 Новость: {title[:40]}...")
                 
-                # --- 1. СЕМАНТИЧЕСКАЯ ДЕДУПЛИКАЦИЯ ---
                 news_embedding = get_embedding(title, token)
                 if news_embedding:
                     is_duplicate = False
@@ -362,7 +356,6 @@ def main():
                             break
                     if is_duplicate: continue
 
-                # --- 2. ФАКТЧЕКИНГ ЦИФР ---
                 original_percents = set(re.findall(r'(\d+(?:[.,]\d+)?)\s*%', text_to_check))
 
                 category_header = detect_category(text_to_check)
