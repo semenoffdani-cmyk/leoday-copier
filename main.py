@@ -120,28 +120,6 @@ def save_json(data, filepath):
     except Exception as e: 
         print(f"Ошибка сохранения {filepath}: {e}")
 
-def fix_title_case(text):
-    lines = text.split('\n')
-    fixed_lines = []
-    for line in lines:
-        clean_line = line.strip()
-        if clean_line.startswith('<b>') and '</b>' in clean_line:
-            match = re.search(r'<b>(.*?)</b>(.*)', clean_line)
-            if match:
-                heading = match.group(1).lower().capitalize()
-                body = match.group(2).strip()
-                if body and sum(1 for w in body.split() if w[:1].isupper()) > len(body.split()) * 0.5:
-                    body = body.lower()
-                    if body: body = body[0].upper() + body[1:]
-                fixed_lines.append(f"<b>{heading}</b>\n{body}")
-        else:
-            words = clean_line.split()
-            if len(words) > 3 and sum(1 for w in words if w[:1].isupper()) > len(words) * 0.6:
-                clean_line = clean_line.lower()
-                if clean_line: clean_line = clean_line[0].upper() + clean_line[1:]
-            fixed_lines.append(clean_line)
-    return '\n'.join(fixed_lines)
-
 # =====================================================================
 # 🏷️ УМНАЯ СИСТЕМА РУБРИК
 # =====================================================================
@@ -191,7 +169,7 @@ def cosine_similarity(vec1, vec2):
     return dot_product / (norm1 * norm2)
 
 # =====================================================================
-# 🤖 GIGACHAT: РЕРАЙТ ТЕКСТА (ИДЕАЛЬНЫЕ ОТСТУПЫ)
+# 🤖 GIGACHAT: РЕРАЙТ ТЕКСТА (ИДЕАЛЬНЫЕ ОТСТУПЫ И БОЛЬШЕ ТЕКСТА)
 # =====================================================================
 def rewrite_text(text, token):
     if not token or not text: return None
@@ -208,43 +186,41 @@ def rewrite_text(text, token):
                     "Если новость НЕ ОТНОСИТСЯ к экономике, финансам, бизнесу или технологиям, напиши ровно одно слово: ОТКАЗ."
                 )},
                 {"role": "user", "content": (
-                    f"Напиши пост строго по этому шаблону (не добавляй ничего лишнего):\n\n"
-                    f"[1-2 предложения СУТИ новости. Обязательно начни с заглавной буквы. НЕ пиши просто 'Банк России']\n\n"
-                    f"<b>Что это значит?</b>\n\n[1-2 предложения о влиянии на кошелек или работу]\n\n"
-                    f"<b>Что дальше?</b>\n\n[1 предложение о том, на какой показатель смотреть]\n\n"
+                    f"Напиши пост строго по этому шаблону (не добавляй ничего лишнего, пиши развернуто):\n\n"
+                    f"[2-3 предложения СУТИ новости. Раскрой подробности, цифры или контекст. Обязательно начни с заглавной буквы. НЕ пиши просто 'Банк России']\n\n"
+                    f"<b>Что это значит?</b>\n\n[2-3 предложения о влиянии на кошелек, работу или экономику в целом]\n\n"
+                    f"<b>Что дальше?</b>\n\n[1-2 предложения о том, на какой показатель смотреть и почему]\n\n"
                     f"Текст новости:\n{text}"
                 )}
             ],
-            "temperature": 0.3, "max_tokens": 1000
+            "temperature": 0.3, "max_tokens": 1500
         }
         response = SESSION.post(url, headers=headers, json=payload, verify=VERIFY_SSL, timeout=90)
         if response.status_code != 200: return None
         rewritten = response.json()['choices'][0]['message']['content'].strip()
         
         if any(root in rewritten.lower() for root in ["генеративн", "облада", "мнени", "ограничен", "неправильн", "благодарим", "отказ"]): return None
-        if len(rewritten) < 50: return None
+        if len(rewritten) < 100: return None
         
-        # 1. Очищаем от мусорных символов
+        # 1. Очищаем от мусора и невидимых символов
         rewritten = re.sub(r'[*_`#]', '', rewritten)
+        rewritten = rewritten.replace('&nbsp;', ' ').replace('\r', '')
         
-        # 2. Исправляем регистр
-        rewritten = fix_title_case(rewritten)
+        # 2. Удаляем случайные заголовки "Банк России" в начале
+        rewritten = re.sub(r'(?i)^\s*банк россии\s*\n*', '', rewritten)
         
-        # 3. Если нейросеть начала текст со слов "Банк России" (без сказуемого), удаляем эту строку
-        rewritten = re.sub(r'(?i)^\s*банк россии\s*\n+', '', rewritten)
+        # 🚨 3. СХЛОПЫВАЕМ ВЕСЬ ТЕКСТ В ОДНУ СТРОКУ (Убиваем все лишние пробелы и переносы)
+        rewritten = re.sub(r'\s+', ' ', rewritten).strip()
         
-        # 4. ЖЕСТКАЯ ЗАМЕНА ЗАГОЛОВКОВ
-        rewritten = re.sub(r'(?i)что это значит\?', '<b>Что это значит?</b>', rewritten)
-        rewritten = re.sub(r'(?i)что дальше\?', '<b>Что дальше?</b>', rewritten)
+        # 4. Теперь расставляем заголовки с идеальными отступами
+        rewritten = re.sub(r'(?i)что это значит\?', r'\n\n<b>Что это значит?</b>\n\n', rewritten)
+        rewritten = re.sub(r'(?i)что дальше\?', r'\n\n<b>Что дальше?</b>\n\n', rewritten)
         
-        # 5. СХЛОПЫВАЕМ ВСЕ ЛИШНИЕ ПЕРЕНОСЫ СТРОК (убираем огромные дыры)
-        rewritten = re.sub(r'\n+', '\n', rewritten)
-        
-        # 6. Ставим ровно ОДИН отступ (два переноса) перед и после заголовков
-        rewritten = re.sub(r'\n*<b>', '\n\n<b>', rewritten)
-        rewritten = re.sub(r'</b>\n*', '</b>\n\n', rewritten)
-        
-        return rewritten.strip()
+        # 5. Делаем первую букву заглавной (на всякий случай)
+        if rewritten:
+            rewritten = rewritten[0].upper() + rewritten[1:]
+            
+        return rewritten
     except Exception: return None
 
 # =====================================================================
