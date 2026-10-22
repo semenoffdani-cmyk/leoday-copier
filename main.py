@@ -46,7 +46,7 @@ RSS_FEEDS = [
     'https://ria.ru/export/rss2/archive/index.xml'
 ]
 
-# 🚫 УМЕРЕННЫЙ ЧЕРНЫЙ СПИСОК (Добавлены политики)
+# 🚫 УМЕРЕННЫЙ ЧЕРНЫЙ СПИСОК
 BLACKLIST_REGEX = re.compile(
     r'тренер|матч|гол|футбол|хоккей|спорт|чемпионат|кубок|олимпиад|клуб|игрок|трусов|'
     r'теннис|бокс|ufc|mma|фигурное|биатлон|плавание|футболист|хоккеист|медаль|турнир|'
@@ -58,7 +58,6 @@ BLACKLIST_REGEX = re.compile(
     r'свадьба|беременна|родила|пластика|ютуб|хайп|аукцион|топор|фильм|кубрик|памятник|музей|гражданство|'
     r'шок|сенсац|ужас|эксклюзив|гороскоп|астролог|рецепт|диет|похуден|отношени|коронавирус|'
     r'вакцин|грипп|заболеваемост|эпидеми|симптом|нерпа|тигр|фотоловушка|'
-    # Политика и геополитика (Добавили Медведева и др.)
     r'мобилизац|войн|санкц|спецоперац|трамп|байден|путин|медведев|зеленский|госдум|депутат|оппозиц|митинг|'
     r'лгбт|навальн|мигрант|религи|церковь|бпла|дроны|атак|сбит|ракет|украин|дмитриев|воробьев|мид|'
     r'посол|нато|выборы|конгресс|сенат|парламент|уголовн|следствен|пострадав|жертв|эвакуац|обнал|'
@@ -271,7 +270,7 @@ def rewrite_text(text, token, source_url):
         return None
 
 # =====================================================================
-# 🎨 GIGACHAT: ГЕНЕРАЦИЯ КАРТИНОК
+# 🎨 GIGACHAT: УЛУЧШЕННАЯ ГЕНЕРАЦИЯ КАРТИНОК
 # =====================================================================
 def generate_image_gigachat(news_text, token):
     if not token: return None
@@ -279,47 +278,22 @@ def generate_image_gigachat(news_text, token):
         url = "https://gigachat.devices.sberbank.ru/api/v1/chat/completions"
         headers = {'Content-Type': 'application/json', 'Authorization': f'Bearer {token}'}
         
-        base_style = "Cinematic lighting, Octane render, 8k resolution, minimalist corporate style, deep navy blue and metallic gold colors, highly detailed, no text."
-        theme = f"Abstract 3D financial background, floating golden geometric shapes and glowing blue lines, {base_style}"
+        # Берем первые 150 символов текста для контекста (чтобы картинка была про новость)
+        short_text = news_text[:150].replace('\n', ' ')
         
-        if re.search(r'промышленн|завод|станкостроен|производств|фабрик|станок', news_text, re.IGNORECASE): 
-            theme = f"Isometric 3D render of a futuristic factory with glowing golden gears and robotic arms, dark blue industrial background, {base_style}"
-        elif re.search(r'нефт|газ|энергет|топлив|дизел|бензин|баррел|уголь|опек', news_text, re.IGNORECASE): 
-            theme = f"Macro 3D shot of a golden oil drop suspended in mid-air, surrounded by sleek glass pipelines and glowing blue energy, {base_style}"
-        elif re.search(r'сельхоз|агро|урожай|ферм|зерно', news_text, re.IGNORECASE): 
-            theme = f"Abstract 3D render of golden wheat ears intertwined with glowing blue tech lines, minimalist agriculture concept, {base_style}"
-        elif re.search(r'туризм|отел|курорт|путешеств', news_text, re.IGNORECASE): 
-            theme = f"Sleek 3D model of a golden airplane and a glowing globe, floating above a dark blue background, travel concept, {base_style}"
-        elif re.search(r'экологи|esg|зелен|выброс|углерод', news_text, re.IGNORECASE): 
-            theme = f"Futuristic 3D green leaf made of glowing glass and gold, representing ESG and eco-friendly energy, {base_style}"
-        elif re.search(r'фарм|медицин|лекарств|клиник', news_text, re.IGNORECASE): 
-            theme = f"Premium 3D render of a medical cross and DNA molecule made of gold and blue glass, pharma concept, {base_style}"
-        elif re.search(r'труд|безработ|персонал|кадр|миграц', news_text, re.IGNORECASE): 
-            theme = f"3D illustration of abstract golden human silhouettes looking at a glowing blue career growth chart, {base_style}"
-        elif re.search(r'правительств|министр|кабинет|госдум|заседани|совещани', news_text, re.IGNORECASE): 
-            theme = f"Architectural 3D render of a minimalist government building with tall golden columns and glass walls, dramatic blue lighting, {base_style}"
-        elif re.search(r'банк|цб|кредит|вклад|сбербанк|втб|тинькофф|регулятор', news_text, re.IGNORECASE): 
-            theme = f"3D render of a modern bank vault door slightly open, glowing golden coins floating out, dark blue background, {base_style}"
-        elif re.search(r'самолет|авиа|жд|поезд|транспорт|логистик', news_text, re.IGNORECASE): 
-            theme = f"High-tech 3D render of a futuristic maglev train moving through a glowing blue tunnel with golden tracks, {base_style}"
-        elif re.search(r'ипотек|дом|жкх|недвиж|квартир|стройк', news_text, re.IGNORECASE): 
-            theme = f"Modern 3D architectural render of a luxury minimalist house made of glass and gold accents, floating in a dark blue space, {base_style}"
-        elif re.search(r'крипт|биткоин|блокчейн|токен', news_text, re.IGNORECASE): 
-            theme = f"Glossy 3D render of a floating golden Bitcoin symbol surrounded by glowing blue digital blocks, {base_style}"
-        elif re.search(r'нейросет|чип|робот|технолог|apple|openai|айти', news_text, re.IGNORECASE): 
-            theme = f"Macro 3D shot of a glowing golden microchip on a dark blue circuit board with neon light pulses, {base_style}"
-        elif re.search(r'акци|бирж|индекс|рынок|ставк|трейд', news_text, re.IGNORECASE): 
-            theme = f"Minimalist 3D holographic stock market chart with glowing golden arrows pointing upward, dark blue background, {base_style}"
-        elif re.search(r'рубл|доллар|евро|деньг|цен|валют', news_text, re.IGNORECASE): 
-            theme = f"Macro 3D render of stacked golden coins and floating glowing blue banknotes, {base_style}"
-        elif re.search(r'ритейл|маркетплейс|wildberries|ozon|магазин', news_text, re.IGNORECASE): 
-            theme = f"Stylish 3D render of a modern shopping cart made of gold and glass, floating blue boxes, {base_style}"
+        base_style = "Cinematic lighting, Octane render, 8k resolution, minimalist corporate style, deep navy blue and metallic gold colors, highly detailed, no text, no letters, no numbers."
+        
+        # Формируем умный промпт для Kandinsky
+        prompt = (
+            f"Create a conceptual 3D illustration that metaphorically represents this news: '{short_text}'. "
+            f"Use {base_style}."
+        )
 
         payload = {
             "model": "GigaChat",
             "messages": [
                 {"role": "system", "content": "You are a professional 3D artist. Use text2image. Return only <img src=\"FILE_ID\"/>"},
-                {"role": "user", "content": f"{theme} STRICTLY NO TEXT, NO LETTERS, NO NUMBERS, NO LOGOS."}
+                {"role": "user", "content": prompt}
             ],
             "function_call": "auto"
         }
