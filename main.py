@@ -191,7 +191,7 @@ def cosine_similarity(vec1, vec2):
     return dot_product / (norm1 * norm2)
 
 # =====================================================================
-# 🤖 GIGACHAT: РЕРАЙТ ТЕКСТА (С НОРМАЛИЗАЦИЕЙ ОТСТУПОВ)
+# 🤖 GIGACHAT: РЕРАЙТ ТЕКСТА (ИДЕАЛЬНЫЕ ОТСТУПЫ)
 # =====================================================================
 def rewrite_text(text, token):
     if not token or not text: return None
@@ -230,25 +230,19 @@ def rewrite_text(text, token):
         # 2. Исправляем регистр
         rewritten = fix_title_case(rewritten)
         
-        # 3. Убираем случайный заголовок "Банк России" в начале
+        # 3. Если нейросеть начала текст со слов "Банк России" (без сказуемого), удаляем эту строку
         rewritten = re.sub(r'(?i)^\s*банк россии\s*\n+', '', rewritten)
         
-        # 4. ЖЕСТКАЯ ЗАМЕНА ЗАГОЛОВКОВ (в любом регистре)
+        # 4. ЖЕСТКАЯ ЗАМЕНА ЗАГОЛОВКОВ
         rewritten = re.sub(r'(?i)что это значит\?', '<b>Что это значит?</b>', rewritten)
         rewritten = re.sub(r'(?i)что дальше\?', '<b>Что дальше?</b>', rewritten)
         
-        # 🚨 5. НОРМАЛИЗАЦИЯ ОТСТУПОВ (Убираем гигантские дыры)
-        # Сначала убираем все лишние переносы (3 и более) и заменяем на 2
-        rewritten = re.sub(r'\n{3,}', '\n\n', rewritten)
+        # 5. СХЛОПЫВАЕМ ВСЕ ЛИШНИЕ ПЕРЕНОСЫ СТРОК (убираем огромные дыры)
+        rewritten = re.sub(r'\n+', '\n', rewritten)
         
-        # Ставим ровно 2 переноса перед тегом <b>
-        rewritten = re.sub(r'\s*<b>', '\n\n<b>', rewritten)
-        
-        # Ставим ровно 2 переноса после закрывающего тега </b>
-        rewritten = re.sub(r'</b>\s*', '</b>\n\n', rewritten)
-        
-        # Финальная зачистка на случай, если предыдущие шаги создали лишние переносы
-        rewritten = re.sub(r'\n{3,}', '\n\n', rewritten)
+        # 6. Ставим ровно ОДИН отступ (два переноса) перед и после заголовков
+        rewritten = re.sub(r'\n*<b>', '\n\n<b>', rewritten)
+        rewritten = re.sub(r'</b>\n*', '</b>\n\n', rewritten)
         
         return rewritten.strip()
     except Exception: return None
