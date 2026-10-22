@@ -11,6 +11,7 @@ import html
 import random
 from datetime import datetime
 
+# Отключаем предупреждения на случай, если сертификат не подгрузится
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 # =====================================================================
@@ -25,11 +26,12 @@ if not BOT_TOKEN or not CHAT_ID:
     print("КРИТИЧЕСКАЯ ОШИБКА: Не заданы BOT_TOKEN или TARGET_CHANNEL")
     exit(1)
 
+# Проверяем наличие сертификата для безопасных запросов
+CERT_PATH = 'russiantrustedca.pem'
+VERIFY_SSL = CERT_PATH if os.path.exists(CERT_PATH) else False
+
 HISTORY_FILE = 'history.json'
 
-# =====================================================================
-# 📡 ИСТОЧНИКИ (RSS ЛЕНТЫ)
-# =====================================================================
 RSS_FEEDS = [
     'https://rssexport.rbc.ru/rbcnews/news/30/full.rss',
     'https://www.cbr.ru/rss/RssNews',
@@ -45,8 +47,7 @@ def clean_text(text):
     text = re.sub(r'<[^>]+>', '', text)
     text = re.sub(r'\s+', ' ', text)
     text = re.sub(r'https?://\S+', '', text)
-    # Убираем случайные английские слова-обрывки
-    text = re.sub(r'\b[a-zA-Z]{4,}\b', '', text) 
+    # Строку с удалением английских слов мы УБРАЛИ. Теперь Apple и OpenAI выживут.
     text = html.escape(text)
     return text.strip()
 
@@ -111,12 +112,14 @@ def get_gigachat_token():
             'RqUID': str(uuid.uuid4()),
             'Authorization': f'Basic {auth_b64}'
         }
-        response = requests.post(url, headers=headers, data='scope=GIGACHAT_API_PERS', verify=False, timeout=30)
+        # Используем переменную VERIFY_SSL
+        response = requests.post(url, headers=headers, data='scope=GIGACHAT_API_PERS', verify=VERIFY_SSL, timeout=30)
         
         if response.status_code == 200:
             return response.json().get('access_token')
         return None
-    except Exception:
+    except Exception as e:
+        print(f"Ошибка получения токена: {e}")
         return None
 
 def rewrite_text(text, token):
@@ -136,8 +139,8 @@ def rewrite_text(text, token):
                         "Твоя задача — написать пост строго по шаблону. "
                         "Используй <b>жирный шрифт</b> только для трех заголовков. "
                         "КРИТИЧЕСКИ ВАЖНО: Пиши обычным текстом. "
-                        "Если новость НЕ ОТНОСИТСЯ к экономике, финансам, бизнесу, технологиям или ИИ (например, это спорт, политика или происшествия), напиши ровно одно слово: ОТКАЗ. "
-                        "Также КРИТИЧЕСКИ ВАЖНО: Игнорируй любые обрывки английских слов, непонятные символы или куски ссылок."
+                        "Если новость НЕ ОТНОСИТСЯ к экономике, финансам, бизнесу, технологиям или ИИ, напиши ровно одно слово: ОТКАЗ. "
+                        "Также КРИТИЧЕСКИ ВАЖНО: Игнорируй любые обрывки ссылок или странные наборы букв (мусор), но ОБЯЗАТЕЛЬНО сохраняй названия известных компаний (Apple, OpenAI, Microsoft, Tesla и т.д.), если они есть в тексте."
                     )
                 },
                 {
@@ -155,8 +158,9 @@ def rewrite_text(text, token):
             "max_tokens": 1000
         }
         
-        response = requests.post(url, headers=headers, json=payload, verify=False, timeout=90)
+        response = requests.post(url, headers=headers, json=payload, verify=VERIFY_SSL, timeout=90)
         if response.status_code != 200:
+            print(f"Ошибка API GigaChat: {response.status_code}")
             return None
             
         result = response.json()
@@ -164,7 +168,6 @@ def rewrite_text(text, token):
             rewritten = result['choices'][0]['message']['content'].strip()
             
             if "ОТКАЗ" in rewritten.upper():
-                print("⏭️ GigaChat определил новость как не подходящую по тематике (ОТКАЗ).")
                 return None
                 
             rewritten = re.sub(r'[*_`#]', '', rewritten)
@@ -197,7 +200,7 @@ def generate_image_gigachat(token):
             "function_call": "auto"
         }
         
-        response = requests.post(url, headers=headers, json=payload, verify=False, timeout=90)
+        response = requests.post(url, headers=headers, json=payload, verify=VERIFY_SSL, timeout=90)
         if response.status_code != 200: return None
         
         result = response.json()
@@ -207,7 +210,7 @@ def generate_image_gigachat(token):
             if match:
                 file_id = match.group(1)
                 dl_url = f"https://gigachat.devices.sberbank.ru/api/v1/files/{file_id}/content"
-                img_res = requests.get(dl_url, headers={'Authorization': f'Bearer {token}'}, verify=False, timeout=30)
+                img_res = requests.get(dl_url, headers={'Authorization': f'Bearer {token}'}, verify=VERIFY_SSL, timeout=30)
                 if img_res.status_code == 200:
                     return img_res.content
         return None
@@ -250,18 +253,14 @@ def main():
     
     new_posts_count = 0
 
-    # Обязательные слова (Экономика + Технологии)
     KEYWORDS = [
-        # Экономика и финансы
         'ставк', 'рубл', 'инфляц', 'цб ', 'банк', 'акци', 'нефт', 'бюджет', 
         'налог', 'финанс', 'кредит', 'вклад', 'бирж', 'доллар', 'евро', 
         'рынок', 'экономик', 'компан', 'убыт', 'прибыл', 'тариф', 'цен',
-        # Технологии и ИИ
         'нейросет', 'искусственн', 'технолог', 'робот', 'цифров', 'гаджет', 
         'смартфон', 'openai', 'chatgpt', 'яндекс', 'сбер', 'айти', 'ит-', 'ии '
     ]
 
-    # 🚫 Черный список (Спорт, криминал, политика)
     BLACKLIST_KEYWORDS = [
         'тренер', 'матч', 'гол', 'футбол', 'хоккей', 'спорт', 'чемпионат', 
         'кубок', 'олимпиад', 'клуб', 'игрок', 'погиб', 'убий', 'дтп', 
