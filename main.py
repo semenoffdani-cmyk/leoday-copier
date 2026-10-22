@@ -188,7 +188,7 @@ def cosine_similarity(vec1, vec2):
     return dot_product / (norm1 * norm2)
 
 # =====================================================================
-# 🤖 GIGACHAT: РЕРАЙТ ТЕКСТА
+# 🤖 GIGACHAT: РЕРАЙТ ТЕКСТА (БЕЗ "ЧТО ПРОИЗОШЛО?")
 # =====================================================================
 def rewrite_text(text, token):
     if not token or not text: return None
@@ -206,7 +206,7 @@ def rewrite_text(text, token):
                 )},
                 {"role": "user", "content": (
                     f"Напиши пост строго по этому шаблону (не добавляй ничего лишнего):\n\n"
-                    f"<b>Что произошло?</b>\n\n[1-2 предложения сути]\n\n"
+                    f"[1-2 предложения СУТИ новости, БЕЗ заголовков]\n\n"
                     f"<b>Что это значит?</b>\n\n[1-2 предложения о влиянии на кошелек или работу]\n\n"
                     f"<b>Что дальше?</b>\n\n[1 предложение о том, на какой показатель смотреть]\n\n"
                     f"Текст новости:\n{text}"
@@ -218,15 +218,14 @@ def rewrite_text(text, token):
         if response.status_code != 200: return None
         rewritten = response.json()['choices'][0]['message']['content'].strip()
         
-        # Защита от отказов
         if any(root in rewritten.lower() for root in ["генеративн", "облада", "мнени", "ограничен", "неправильн", "благодарим", "отказ"]): return None
         if len(rewritten) < 50: return None
         
         rewritten = re.sub(r'[*_`#]', '', rewritten)
         rewritten = fix_title_case(rewritten)
         
-        # 🚨 ЖЕСТКАЯ ФИКСАЦИЯ ОТСТУПОВ И ЖИРНОГО ШРИФТА (Даже если ИИ забыл)
-        rewritten = re.sub(r'(Что произошло\?|Что это значит\?|Что дальше\?)', r'<b>\1</b>', rewritten)
+        # 🚨 ЖЕСТКАЯ ФИКСАЦИЯ ОТСТУПОВ (Для двух оставшихся заголовков)
+        rewritten = re.sub(r'(Что это значит\?|Что дальше\?)', r'<b>\1</b>', rewritten)
         rewritten = re.sub(r'</b>\s*', '</b>\n\n', rewritten)
         
         return rewritten.strip()
