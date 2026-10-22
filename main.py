@@ -39,13 +39,9 @@ RSS_FEEDS = [
 def clean_text(text):
     if not text:
         return ""
-    # Удаляем HTML-теги
     text = re.sub(r'<[^>]+>', '', text)
-    # Убираем лишние пробелы
     text = re.sub(r'\s+', ' ', text)
-    # Удаляем ссылки
     text = re.sub(r'https?://\S+', '', text)
-    # Экранируем HTML-символы для Telegram
     text = html.escape(text)
     return text.strip()
 
@@ -101,20 +97,32 @@ def rewrite_text(text, token):
         url = "https://gigachat.devices.sberbank.ru/api/v1/chat/completions"
         headers = {'Content-Type': 'application/json', 'Authorization': f'Bearer {token}'}
         
-        # УЖЕСТОЧЕННЫЙ ПРОМПТ: запрет на решетки, звездочки и заголовки
-        prompt = (
-            f"Ты — ведущий финансового канала 'QIVONZA | КАПИТАЛ'. Сделай из этой новости пост. "
-            f"Пиши сплошным текстом, без заголовков. СТРОГО ЗАПРЕЩЕНО использовать символы #, *, _ и квадратные скобки. "
-            f"Ответь на три вопроса (каждый с новой строки):\n"
-            f"1. Что произошло?\n2. Что это меняет для обычного человека?\n3. За чем следить дальше?\n\n"
-            f"Текст новости:\n{text}"
-        )
-        
+        # Разделяем на System (инструкция) и User (сама новость)
         payload = {
             "model": "GigaChat",
-            "messages": [{"role": "user", "content": prompt}],
-            "temperature": 0.1, # Снижаем креативность, чтобы модель не выпендривалась с разметкой
-            "max_tokens": 600   
+            "messages": [
+                {
+                    "role": "system",
+                    "content": (
+                        "Ты — профессиональный редактор финансового канала. "
+                        "Твоя задача — написать пост строго по шаблону. "
+                        "Используй <b>жирный шрифт</b> для заголовков (HTML разрешен). "
+                        "Никаких звездочек, решеток и маркдауна. Пиши грамотно, с заглавных букв."
+                    )
+                },
+                {
+                    "role": "user",
+                    "content": (
+                        f"Напиши пост строго по этому шаблону (не отклоняйся от него):\n\n"
+                        f"<b>Что произошло?</b>\n[1-2 предложения сути]\n\n"
+                        f"<b>Что это меняет для обычного человека?</b>\n[1-2 предложения о влиянии на кошелек]\n\n"
+                        f"<b>За чем следить дальше?</b>\n[1 предложение о том, на какой показатель смотреть]\n\n"
+                        f"Текст новости:\n{text}"
+                    )
+                }
+            ],
+            "temperature": 0.3, 
+            "max_tokens": 1000  # Увеличили лимит, чтобы текст не обрывался!
         }
         
         response = requests.post(url, headers=headers, json=payload, verify=False, timeout=90)
@@ -125,14 +133,19 @@ def rewrite_text(text, token):
         if 'choices' in result:
             rewritten = result['choices'][0]['message']['content'].strip()
             
-            # ЖЕСТКАЯ ЗАЧИСТКА: удаляем любые решетки, звездочки и Markdown-теги
-            rewritten = re.sub(r'#+\s*', '', rewritten) # Убирает ## и ###
-            rewritten = re.sub(r'[*_`]', '', rewritten) 
-            rewritten = re.sub(r'<[^>]+>', '', rewritten)
+            # Очищаем только от мусора, ОСТАВЛЯЕМ <b> и </b>
+            rewritten = re.sub(r'[*_`#]', '', rewritten)
+            # Убираем лишние пробелы перед тегами
+            rewritten = re.sub(r'\s+<b>', '\n\n<b>', rewritten) 
             
+            # Проверка на обрыв текста (если не заканчивается на точку, воскл. или вопр. знак)
+            if not re.search(r'[.!?]$', rewritten):
+                rewritten += "..." 
+                
             return rewritten.strip()
         return text
-    except Exception:
+    except Exception as e:
+        print(f"Ошибка рерайта: {e}")
         return text
 
 # =====================================================================
@@ -144,12 +157,11 @@ def generate_image_gigachat(prompt, token):
         url = "https://gigachat.devices.sberbank.ru/api/v1/chat/completions"
         headers = {'Content-Type': 'application/json', 'Authorization': f'Bearer {token}'}
         
-        # Усиленный промпт: просим абстракцию, чтобы не было текста
         payload = {
             "model": "GigaChat",
             "messages": [
                 {"role": "system", "content": "Ты — художник. Используй text2image. Верни только <img src=\"FILE_ID\"/>"},
-                {"role": "user", "content": f"Абстрактная финансовая 3D-иллюстрация. Тема: {prompt}. Сине-золотые тона, графики, монеты. Строго без текста, без букв, без надписей."}
+                {"role": "user", "content": f"Абстрактная финансовая 3D-иллюстрация. Тема: {prompt}. Сине-золотые тона, графики, монеты. Строго без текста."}
             ],
             "function_call": "auto"
         }
@@ -189,7 +201,6 @@ def generate_image_fallback(prompt):
 def send_photo(text, image_bytes):
     url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendPhoto"
     
-    # Если текст длиннее 1000 символов, отправляем фото и текст отдельно
     if len(text) > 1000:
         try:
             requests.post(url, data={"chat_id": CHAT_ID}, files={"photo": ("poster.jpg", image_bytes, "image/jpeg")}, timeout=30)
@@ -200,6 +211,8 @@ def send_photo(text, image_bytes):
     files = {"photo": ("poster.jpg", image_bytes, "image/jpeg")}
     try:
         res = requests.post(url, data=payload, files=files, timeout=30)
+        if not res.ok:
+            print(f"Ошибка Telegram: {res.text}")
         return res.ok
     except: return False
 
@@ -208,6 +221,8 @@ def send_text(text):
     payload = {"chat_id": CHAT_ID, "text": text, "parse_mode": "HTML", "disable_web_page_preview": True}
     try:
         res = requests.post(url, json=payload, timeout=15)
+        if not res.ok:
+            print(f"Ошибка Telegram: {res.text}")
         return res.ok
     except: return False
 
@@ -229,7 +244,6 @@ def main():
     for feed_url in RSS_FEEDS:
         print(f"Проверка: {feed_url}")
         try:
-            # ИСПРАВЛЕНИЕ КОДИРОВКИ: скачиваем вручную и заставляем Python прочитать как UTF-8
             resp = requests.get(feed_url, timeout=15)
             resp.encoding = 'utf-8' 
             feed = feedparser.parse(resp.content)
