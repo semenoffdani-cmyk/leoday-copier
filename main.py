@@ -65,35 +65,27 @@ def save_history(history):
     except Exception as e:
         print(f"Ошибка сохранения истории: {e}")
 
-# =====================================================================
-# 🪄 МАГИЯ ИСПРАВЛЕНИЯ РЕГИСТРА (Убирает Заглавные Буквы В Каждом Слове)
-# =====================================================================
 def fix_title_case(text):
     lines = text.split('\n')
     fixed_lines = []
-    
     for line in lines:
-        # Если это заголовок с жирным шрифтом
         if line.startswith('<b>') and '</b>' in line:
             match = re.search(r'<b>(.*?)</b>(.*)', line)
             if match:
                 heading = match.group(1).lower().capitalize()
                 body = match.group(2).strip()
-                # Если тело поста написано Заглавными Буквами, исправляем
                 if body and sum(1 for w in body.split() if w[:1].isupper()) > len(body.split()) * 0.5:
                     body = body.lower()
                     if body:
                         body = body[0].upper() + body[1:]
                 fixed_lines.append(f"<b>{heading}</b>\n{body}")
         else:
-            # Если обычный текст написан с Заглавных Букв
             words = line.split()
             if len(words) > 3 and sum(1 for w in words if w[:1].isupper()) > len(words) * 0.6:
                 line = line.lower()
                 if line:
                     line = line[0].upper() + line[1:]
             fixed_lines.append(line)
-            
     return '\n'.join(fixed_lines)
 
 # =====================================================================
@@ -137,7 +129,7 @@ def rewrite_text(text, token):
                         "Ты — профессиональный редактор финансового канала. "
                         "Твоя задача — написать пост строго по шаблону. "
                         "Используй <b>жирный шрифт</b> только для трех заголовков (в шаблоне они уже есть). "
-                        "КРИТИЧЕСКИ ВАЖНО: Пиши обычным текстом, как в газете. НЕ ПИШИ КАЖДОЕ СЛОВО С БОЛЬШОЙ БУКВЫ. "
+                        "КРИТИЧЕСКИ ВАЖНО: Пиши обычным текстом. НЕ ПИШИ КАЖДОЕ СЛОВО С БОЛЬШОЙ БУКВЫ. "
                         "Только первая буква предложения должна быть заглавной. Никаких звездочек и маркдауна."
                     )
                 },
@@ -163,11 +155,7 @@ def rewrite_text(text, token):
         result = response.json()
         if 'choices' in result:
             rewritten = result['choices'][0]['message']['content'].strip()
-            
-            # Убираем мусорные символы
             rewritten = re.sub(r'[*_`#]', '', rewritten)
-            
-            # 🪄 ПРИМЕНЯЕМ МАГИЮ (Исправляем регистр)
             rewritten = fix_title_case(rewritten)
             
             if not re.search(r'[.!?]$', rewritten):
@@ -180,7 +168,7 @@ def rewrite_text(text, token):
         return text
 
 # =====================================================================
-# 🎨 КАРТИНКИ
+# 🎨 ГЕНЕРАЦИЯ КАРТИНОК (СТРОГО БЕЗ ТЕКСТА)
 # =====================================================================
 def generate_image_gigachat(prompt, token):
     if not token: return None
@@ -188,11 +176,13 @@ def generate_image_gigachat(prompt, token):
         url = "https://gigachat.devices.sberbank.ru/api/v1/chat/completions"
         headers = {'Content-Type': 'application/json', 'Authorization': f'Bearer {token}'}
         
+        # Используем английский язык для промпта (Kandinsky понимает его лучше) и 
+        # даем максимально жесткие ограничения на отсутствие текста.
         payload = {
             "model": "GigaChat",
             "messages": [
-                {"role": "system", "content": "Ты — художник. Используй text2image. Верни только <img src=\"FILE_ID\"/>"},
-                {"role": "user", "content": f"Абстрактная финансовая 3D-иллюстрация. Тема: {prompt}. Сине-золотые тона, графики, монеты. Строго без текста."}
+                {"role": "system", "content": "You are a 3D artist. Use text2image. Return only <img src=\"FILE_ID\"/>"},
+                {"role": "user", "content": f"Abstract 3D financial illustration. Theme: {prompt}. Blue and gold colors, geometric shapes, glowing lines. STRICTLY NO TEXT, NO LETTERS, NO NUMBERS, NO TYPOGRAPHY, NO WATERMARKS. Clean minimalist background."}
             ],
             "function_call": "auto"
         }
@@ -216,7 +206,8 @@ def generate_image_gigachat(prompt, token):
 
 def generate_image_fallback(prompt):
     try:
-        safe_prompt = urllib.parse.quote(f"abstract 3d financial background, {prompt}, blue and gold, no text, no letters")
+        # Аналогичный жесткий промпт для резервного генератора
+        safe_prompt = urllib.parse.quote(f"abstract 3d financial background, {prompt}, blue and gold, no text, no letters, no numbers, no typography, clean minimalist")
         url = f"https://image.pollinations.ai/prompt/{safe_prompt}?width=1024&height=1024&nologo=true"
         headers = {'User-Agent': 'Mozilla/5.0'}
         response = requests.get(url, headers=headers, timeout=40)
