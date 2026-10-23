@@ -166,14 +166,33 @@ SESSION.mount('https://', HTTPAdapter(max_retries=retries))
 # =====================================================================
 def remove_garbage(text):
     known_brands = {
-        'brent', 'wti', 'visa', 'mastercard', 'huawei', 'xiaomi', 'tiktok', 
-        'youtube', 'netflix', 'boeing', 'airbus', 'ford', 'toyota', 'bmw', 
-        'audi', 'mercedes', 'volkswagen', 'shell', 'bp', 'exxon', 'chevron', 
-        'gazprom', 'rosneft', 'lukoil', 'sber', 'vtb', 'tinkoff', 'alfa', 
-        'binance', 'coinbase', 'ethereum', 'solana', 'usdt', 'usdc', 'tether',
+        # Нефть, газ, сырье
+        'brent', 'wti', 'urals', 'espo', 'opec', 'aramco', 'total', 'eni', 
+        'novatek', 'transneft', 'sibur', 'shell', 'bp', 'exxon', 'chevron',
+        
+        # Финансы, банки, биржи
+        'visa', 'mastercard', 'nasdaq', 'nyse', 'moex', 'lse', 'dow', 'sp500', 
+        'ftse', 'cme', 'jpmorgan', 'goldman', 'sachs', 'morgan', 'stanley', 
+        'hsbc', 'paypal', 'swift', 'citi', 'fed', 'ecb', 'frs', 'imf', 'wto', 'gdp',
+        'gazprom', 'rosneft', 'lukoil', 'sber', 'vtb', 'tinkoff', 'alfa',
+        
+        # Криптовалюты
+        'bitcoin', 'btc', 'eth', 'ethereum', 'blockchain', 'defi', 'nft', 'xrp', 
+        'cardano', 'dogecoin', 'binance', 'coinbase', 'solana', 'usdt', 'usdc', 'tether',
+        
+        # Технологии и ИИ
         'apple', 'tesla', 'microsoft', 'google', 'amazon', 'meta', 'nvidia',
-        'samsung', 'intel', 'spacex', 'openai', 'chatgpt', 'gigachat',
-        'php', 'api', 'ipo', 'esg', 'ai', 'it', 'rbc', 'ria', 'cbr'
+        'samsung', 'intel', 'spacex', 'openai', 'chatgpt', 'gigachat', 'deepmind', 
+        'anthropic', 'claude', 'gemini', 'copilot', 'yandex', 'ozon', 'wildberries', 
+        'avito', 'python', 'linux', 'android', 'ios', 'midjourney', 'stable', 'diffusion', 
+        'kandinsky', 'huawei', 'xiaomi', 'tiktok', 'youtube', 'netflix', 'php', 'api',
+        
+        # Автопром и промышленность
+        'boeing', 'airbus', 'ford', 'toyota', 'bmw', 'audi', 'mercedes', 
+        'volkswagen', 'byd', 'stellantis', 'renault', 'nissan', 'hyundai', 'kia',
+        
+        # Общие термины и источники
+        'ipo', 'esg', 'ai', 'it', 'rbc', 'ria', 'cbr'
     }
 
     def replace_word(match):
@@ -299,7 +318,7 @@ def clean_gigachat_paragraph(p):
 def detect_category(text):
     if re.search(r'промышленн|завод|станкостроен|производств|фабрик|сельхоз|агро|туризм|отель|ритейл|маркетплейс|бизнес|компани|предпринимат', text, re.IGNORECASE):
         return "🏭 <b>БИЗНЕС И ПРОМЫШЛЕННОСТЬ</b>\n\n"
-    if re.search(r'нефт|газ|энергет|топлив|дизел|бензин|батаре|уголь|опек|brent|wti', text, re.IGNORECASE):
+    if re.search(r'нефт|газ|энергет|топлив|дизел|бензин|батаре|уголь|опек|brent|wti|urals', text, re.IGNORECASE):
         return "🛢️ <b>ЭНЕРГЕТИКА И СЫРЬЕ</b>\n\n"
     if re.search(r'вклад|кредит|ипотек|зарплат|пенси|жкх|рубл|доллар|евро|сбербанк|втб|тинькофф|банк|страхов|маткапитал', text, re.IGNORECASE):
         return "💸 <b>ЛИЧНЫЕ ДЕНЬГИ</b>\n\n"
@@ -482,7 +501,7 @@ def generate_image_gigachat(news_text, token):
                 "A photorealistic view of a modern stock exchange trading floor "
                 "with large screens and professional atmosphere, cinematic lighting"
             )
-        elif any(w in text_lower for w in ['нефт', 'газ', 'энергет', 'топлив', 'дизел', 'brent', 'wti']):
+        elif any(w in text_lower for w in ['нефт', 'газ', 'энергет', 'топлив', 'дизел', 'brent', 'wti', 'urals']):
             visual_topic = (
                 "A photorealistic scene of an oil refinery at golden sunset, "
                 "industrial pipelines, dramatic sky, high detail"
