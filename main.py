@@ -336,7 +336,8 @@ def get_gigachat_token():
         if response.status_code == 200:
             return response.json().get('access_token')
         return None
-    except Exception:
+    except Exception as e:
+        print(f"Ошибка получения токена: {e}")
         return None
 
 
@@ -350,8 +351,12 @@ def get_embedding(text, token):
         response = SESSION.post(url, headers=headers, json=payload, verify=VERIFY_SSL, timeout=30)
         if response.status_code == 200:
             return response.json()['data'][0]['embedding']
+        
+        # Логируем ошибку в консоль
+        print(f"⚠️ Ошибка API эмбеддингов: HTTP {response.status_code} - {response.text[:150]}")
         return None
-    except Exception:
+    except Exception as e:
+        print(f"⚠️ Исключение в get_embedding: {e}")
         return None
 
 
@@ -663,20 +668,20 @@ def main():
                 embedding_text = f"{title}. {description[:300]}"
                 news_embedding = get_embedding(embedding_text, token)
 
-                # ИСПРАВЛЕНИЕ: Если эмбеддинг не получен, ПРОПУСКАЕМ новость (защита от дублей)
-                if not news_embedding:
-                    print(f"⏭️ Пропуск (ошибка эмбеддинга, риск дубля): {title[:40]}")
-                    continue
-
-                is_duplicate = False
-                for old_url, old_emb in embeddings_history.items():
-                    similarity = cosine_similarity(news_embedding, old_emb)
-                    if similarity > SIMILARITY_THRESHOLD:
-                        print(f"⏭️ Пропуск (семантический дубль). Сходство: {similarity:.2f}")
-                        is_duplicate = True
-                        break
-                if is_duplicate:
-                    continue
+                # ИСПРАВЛЕНИЕ: Если API упал, мы не блокируем новость, а пропускаем проверку на дубль.
+                # history.json всё равно защитит от точных совпадений.
+                if news_embedding:
+                    is_duplicate = False
+                    for old_url, old_emb in embeddings_history.items():
+                        similarity = cosine_similarity(news_embedding, old_emb)
+                        if similarity > SIMILARITY_THRESHOLD:
+                            print(f"⏭️ Пропуск (семантический дубль). Сходство: {similarity:.2f}")
+                            is_duplicate = True
+                            break
+                    if is_duplicate:
+                        continue
+                else:
+                    print("⚠️ Эмбеддинг не получен. Пропускаем проверку на семантический дубль.")
 
                 original_percents = extract_percents(text_to_check)
                 category_header = detect_category(text_to_check)
@@ -714,11 +719,12 @@ def main():
                     history[news_id] = datetime.now().isoformat()
                     save_json(history, HISTORY_FILE)
 
-                    embeddings_history[news_id] = news_embedding
-                    if len(embeddings_history) > MAX_EMBEDDINGS_HISTORY:
-                        oldest_key = next(iter(embeddings_history))
-                        del embeddings_history[oldest_key]
-                    save_json(embeddings_history, EMBEDDINGS_FILE)
+                    if news_embedding:
+                        embeddings_history[news_id] = news_embedding
+                        if len(embeddings_history) > MAX_EMBEDDINGS_HISTORY:
+                            oldest_key = next(iter(embeddings_history))
+                            del embeddings_history[oldest_key]
+                        save_json(embeddings_history, EMBEDDINGS_FILE)
 
                     new_posts_count += 1
                     time.sleep(4)
