@@ -8,6 +8,11 @@ on:
 permissions:
   contents: write
 
+# НОВОЕ: Защита от одновременного запуска нескольких копий
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
 jobs:
   copy:
     runs-on: ubuntu-latest
@@ -45,6 +50,8 @@ jobs:
           
           if ! git diff --staged --quiet; then
             git commit -m "Update history and embeddings [skip ci]"
+            # НОВОЕ: Подтягиваем изменения с сервера перед отправкой (защита от конфликтов)
+            git pull --rebase
             git push
           else
             echo "Нет изменений для сохранения."
