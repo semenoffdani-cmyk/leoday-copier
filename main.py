@@ -85,7 +85,7 @@ BLACKLIST_PATTERNS = [
     r'\bснегопад\w*', r'\bтайфун\w*', r'\bцунами\w*', r'\bсмерч\w*',
     r'\bантициклон\w*', r'\bтемпература воздуха\b', r'\bпрогноз погоды\b',
 
-    # Культура, шоу-бизнес, мода
+    # Культура, шоу-бизнес, мода, Музыка
     r'\bшоу-бизнес\w*', r'\bзнаменитост\w*', r'\bактер\w*', r'\bактрис\w*',
     r'\bпевиц\w*', r'\bпевец\w*', r'\bразвод\w*', r'\bзвезд\w*',
     r'\bсериал\w*', r'\bконцерт\w*', r'\bфестивал\w*', r'\bинстаграм\w*',
@@ -96,6 +96,7 @@ BLACKLIST_PATTERNS = [
     r'\bкино\w*', r'\bтеатр\w*', r'\bбалет\w*', r'\bопер\w*', r'\bоскар\w*',
     r'\bканн\w*', r'\bподиум\w*', r'\bмода\b', r'\bмоды\b', r'\bмоде\b',
     r'\bмодный\b', r'\bколлекц\w*', r'\bдизайнер\w*', r'\bпремьера\w*',
+    r'\bпесн\w*', r'\bтрек\w*', r'\bальбом\w*', r'\bмузык\w*', r'\bгазманов\w*',
 
     # Здоровье и медицина
     r'\bкоронавирус\w*', r'\bcovid\w*', r'\bвакцин\w*', r'\bгрипп\w*',
@@ -166,32 +167,21 @@ SESSION.mount('https://', HTTPAdapter(max_retries=retries))
 # =====================================================================
 def remove_garbage(text):
     known_brands = {
-        # Нефть, газ, сырье
         'brent', 'wti', 'urals', 'espo', 'opec', 'aramco', 'total', 'eni', 
         'novatek', 'transneft', 'sibur', 'shell', 'bp', 'exxon', 'chevron',
-        
-        # Финансы, банки, биржи
         'visa', 'mastercard', 'nasdaq', 'nyse', 'moex', 'lse', 'dow', 'sp500', 
         'ftse', 'cme', 'jpmorgan', 'goldman', 'sachs', 'morgan', 'stanley', 
         'hsbc', 'paypal', 'swift', 'citi', 'fed', 'ecb', 'frs', 'imf', 'wto', 'gdp',
         'gazprom', 'rosneft', 'lukoil', 'sber', 'vtb', 'tinkoff', 'alfa',
-        
-        # Криптовалюты
         'bitcoin', 'btc', 'eth', 'ethereum', 'blockchain', 'defi', 'nft', 'xrp', 
         'cardano', 'dogecoin', 'binance', 'coinbase', 'solana', 'usdt', 'usdc', 'tether',
-        
-        # Технологии и ИИ
         'apple', 'tesla', 'microsoft', 'google', 'amazon', 'meta', 'nvidia',
         'samsung', 'intel', 'spacex', 'openai', 'chatgpt', 'gigachat', 'deepmind', 
         'anthropic', 'claude', 'gemini', 'copilot', 'yandex', 'ozon', 'wildberries', 
         'avito', 'python', 'linux', 'android', 'ios', 'midjourney', 'stable', 'diffusion', 
         'kandinsky', 'huawei', 'xiaomi', 'tiktok', 'youtube', 'netflix', 'php', 'api',
-        
-        # Автопром и промышленность
         'boeing', 'airbus', 'ford', 'toyota', 'bmw', 'audi', 'mercedes', 
         'volkswagen', 'byd', 'stellantis', 'renault', 'nissan', 'hyundai', 'kia',
-        
-        # Общие термины и источники
         'ipo', 'esg', 'ai', 'it', 'rbc', 'ria', 'cbr'
     }
 
@@ -313,16 +303,16 @@ def clean_gigachat_paragraph(p):
     return p.strip()
 
 # =====================================================================
-# УМНАЯ СИСТЕМА РУБРИК
+# УМНАЯ СИСТЕМА РУБРИК (ИСПОЛЬЗУЕМ ГРАНИЦЫ СЛОВ)
 # =====================================================================
 def detect_category(text):
     if re.search(r'промышленн|завод|станкостроен|производств|фабрик|сельхоз|агро|туризм|отель|ритейл|маркетплейс|бизнес|компани|предпринимат', text, re.IGNORECASE):
         return "🏭 <b>БИЗНЕС И ПРОМЫШЛЕННОСТЬ</b>\n\n"
-    if re.search(r'нефт|газ|энергет|топлив|дизел|бензин|батаре|уголь|опек|brent|wti|urals', text, re.IGNORECASE):
+    if re.search(r'нефт|\bгаз\b|\bгазпром\b|\bгазов\w*|энергет|топлив|дизел|\bbrent\b|\bwti\b|\burals\b', text, re.IGNORECASE):
         return "🛢️ <b>ЭНЕРГЕТИКА И СЫРЬЕ</b>\n\n"
     if re.search(r'вклад|кредит|ипотек|зарплат|пенси|жкх|рубл|доллар|евро|сбербанк|втб|тинькофф|банк|страхов|маткапитал', text, re.IGNORECASE):
         return "💸 <b>ЛИЧНЫЕ ДЕНЬГИ</b>\n\n"
-    if re.search(r'нейросет|искусственн|чип|робот|технолог|apple|openai|смартфон|гаджет|ит-|айти|кибербезопасн|\bии\b|софт|приложени', text, re.IGNORECASE):
+    if re.search(r'нейросет|искусственн|чип|робот|технолог|apple|openai|смартфон|гаджет|ит-|айти|кибербезопасн|\bии\b|софт|приложени|яндекс', text, re.IGNORECASE):
         return "🤖 <b>ТЕХНОЛОГИИ И ИИ</b>\n\n"
     return "📊 <b>ЭКОНОМИКА</b>\n\n"
 
@@ -484,7 +474,7 @@ def rewrite_text(text, token, source_url):
         return None
 
 # =====================================================================
-# GIGACHAT: ГЕНЕРАЦИЯ КАРТИНКИ
+# GIGACHAT: ГЕНЕРАЦИЯ КАРТИНКИ (ИСПОЛЬЗУЕМ РЕГУЛЯРНЫЕ ВЫРАЖЕНИЯ)
 # =====================================================================
 def generate_image_gigachat(news_text, token):
     if not token:
@@ -496,47 +486,47 @@ def generate_image_gigachat(news_text, token):
 
         text_lower = news_text.lower()
 
-        if any(w in text_lower for w in ['биржа', 'мосбиржа', 'бонд', 'облигац', 'трейд']):
+        if re.search(r'биржа|мосбиржа|бонд|облигац|трейд', text_lower):
             visual_topic = (
                 "A photorealistic view of a modern stock exchange trading floor "
                 "with large screens and professional atmosphere, cinematic lighting"
             )
-        elif any(w in text_lower for w in ['нефт', 'газ', 'энергет', 'топлив', 'дизел', 'brent', 'wti', 'urals']):
+        elif re.search(r'нефт|\bгаз\b|\bгазпром\b|\bгазов\w*|энергет|топлив|дизел|\bbrent\b|\bwti\b|\burals\b', text_lower):
             visual_topic = (
                 "A photorealistic scene of an oil refinery at golden sunset, "
                 "industrial pipelines, dramatic sky, high detail"
             )
-        elif any(w in text_lower for w in ['банк', 'цб', 'кредит', 'вклад', 'сбербанк', 'втб']):
+        elif re.search(r'банк|\bцб\b|кредит|вклад|сбербанк|\bвтб\b', text_lower):
             visual_topic = (
                 "A photorealistic interior of a modern bank office with marble columns, "
                 "warm golden lighting, professional atmosphere"
             )
-        elif any(w in text_lower for w in ['ипотек', 'дом', 'жкх', 'недвиж', 'квартир']):
+        elif re.search(r'ипотек|дом|жкх|недвиж|квартир', text_lower):
             visual_topic = (
                 "A photorealistic modern luxury house with large glass windows, "
                 "warm golden evening light, architectural photography"
             )
-        elif any(w in text_lower for w in ['нейросет', 'чип', 'робот', 'технолог', 'apple', 'openai']):
+        elif re.search(r'нейросет|чип|робот|технолог|apple|openai|яндекс', text_lower):
             visual_topic = (
                 "A photorealistic close-up of a futuristic microchip on a dark circuit board, "
                 "glowing blue and gold lights, macro photography"
             )
-        elif any(w in text_lower for w in ['акци', 'индекс', 'рынок', 'ставк']):
+        elif re.search(r'акци|индекс|рынок|ставк', text_lower):
             visual_topic = (
                 "A photorealistic view of a modern stock exchange trading floor with large screens "
                 "and professional atmosphere"
             )
-        elif any(w in text_lower for w in ['крипт', 'биткоин', 'блокчейн']):
+        elif re.search(r'крипт|биткоин|блокчейн', text_lower):
             visual_topic = (
                 "A photorealistic close-up of a golden Bitcoin coin on a dark surface "
                 "with glowing blue digital elements"
             )
-        elif any(w in text_lower for w in ['рост', 'увелич', 'прибыл', 'вырос']):
+        elif re.search(r'рост|увелич|прибыл|вырос', text_lower):
             visual_topic = (
                 "A photorealistic image of a financial analyst looking at a large monitor "
                 "with rising golden charts in a modern office"
             )
-        elif any(w in text_lower for w in ['санкц', 'запрет', 'снижен', 'падени']):
+        elif re.search(r'санкц|запрет|снижен|падени', text_lower):
             visual_topic = (
                 "A photorealistic image of a modern trading floor with falling red charts "
                 "on large screens, dramatic atmosphere"
@@ -673,16 +663,20 @@ def main():
                 embedding_text = f"{title}. {description[:300]}"
                 news_embedding = get_embedding(embedding_text, token)
 
-                if news_embedding:
-                    is_duplicate = False
-                    for old_url, old_emb in embeddings_history.items():
-                        similarity = cosine_similarity(news_embedding, old_emb)
-                        if similarity > SIMILARITY_THRESHOLD:
-                            print(f"⏭️ Пропуск (семантический дубль). Сходство: {similarity:.2f}")
-                            is_duplicate = True
-                            break
-                    if is_duplicate:
-                        continue
+                # ИСПРАВЛЕНИЕ: Если эмбеддинг не получен, ПРОПУСКАЕМ новость (защита от дублей)
+                if not news_embedding:
+                    print(f"⏭️ Пропуск (ошибка эмбеддинга, риск дубля): {title[:40]}")
+                    continue
+
+                is_duplicate = False
+                for old_url, old_emb in embeddings_history.items():
+                    similarity = cosine_similarity(news_embedding, old_emb)
+                    if similarity > SIMILARITY_THRESHOLD:
+                        print(f"⏭️ Пропуск (семантический дубль). Сходство: {similarity:.2f}")
+                        is_duplicate = True
+                        break
+                if is_duplicate:
+                    continue
 
                 original_percents = extract_percents(text_to_check)
                 category_header = detect_category(text_to_check)
@@ -720,12 +714,11 @@ def main():
                     history[news_id] = datetime.now().isoformat()
                     save_json(history, HISTORY_FILE)
 
-                    if news_embedding:
-                        embeddings_history[news_id] = news_embedding
-                        if len(embeddings_history) > MAX_EMBEDDINGS_HISTORY:
-                            oldest_key = next(iter(embeddings_history))
-                            del embeddings_history[oldest_key]
-                        save_json(embeddings_history, EMBEDDINGS_FILE)
+                    embeddings_history[news_id] = news_embedding
+                    if len(embeddings_history) > MAX_EMBEDDINGS_HISTORY:
+                        oldest_key = next(iter(embeddings_history))
+                        del embeddings_history[oldest_key]
+                    save_json(embeddings_history, EMBEDDINGS_FILE)
 
                     new_posts_count += 1
                     time.sleep(4)
