@@ -171,21 +171,35 @@ SESSION.mount('https://', HTTPAdapter(max_retries=retries))
 # =====================================================================
 def remove_garbage(text):
     known_brands = {
+        # Нефть, газ, сырье
         'brent', 'wti', 'urals', 'espo', 'opec', 'aramco', 'total', 'eni', 
         'novatek', 'transneft', 'sibur', 'shell', 'bp', 'exxon', 'chevron',
+        
+        # Финансы, банки, биржи
         'visa', 'mastercard', 'nasdaq', 'nyse', 'moex', 'lse', 'dow', 'sp500', 
         'ftse', 'cme', 'jpmorgan', 'goldman', 'sachs', 'morgan', 'stanley', 
         'hsbc', 'paypal', 'swift', 'citi', 'fed', 'ecb', 'frs', 'imf', 'wto', 'gdp',
         'gazprom', 'rosneft', 'lukoil', 'sber', 'vtb', 'tinkoff', 'alfa',
+        
+        # Криптовалюты
         'bitcoin', 'btc', 'eth', 'ethereum', 'blockchain', 'defi', 'nft', 'xrp', 
         'cardano', 'dogecoin', 'binance', 'coinbase', 'solana', 'usdt', 'usdc', 'tether',
+        
+        # Технологии и ИИ
         'apple', 'tesla', 'microsoft', 'google', 'amazon', 'meta', 'nvidia',
         'samsung', 'intel', 'spacex', 'openai', 'chatgpt', 'gigachat', 'deepmind', 
         'anthropic', 'claude', 'gemini', 'copilot', 'yandex', 'ozon', 'wildberries', 
         'avito', 'python', 'linux', 'android', 'ios', 'midjourney', 'stable', 'diffusion', 
         'kandinsky', 'huawei', 'xiaomi', 'tiktok', 'youtube', 'netflix', 'php', 'api',
-        'boeing', 'airbus', 'ford', 'toyota', 'bmw', 'audi', 'mercedes', 
-        'volkswagen', 'byd', 'stellantis', 'renault', 'nissan', 'hyundai', 'kia',
+        'ericsson', 'nokia', 'siemens', 'bosch', 'sony', 'panasonic', 'lg',
+        
+        # Автопром и промышленность
+        'volvo', 'scania', 'boeing', 'airbus', 'ford', 'toyota', 'bmw', 'audi', 
+        'mercedes', 'volkswagen', 'byd', 'stellantis', 'renault', 'nissan', 
+        'hyundai', 'kia', 'geely', 'peugeot', 'citroen', 'fiat', 'ferrari', 
+        'lamborghini', 'porsche', 'honda', 'mazda', 'subaru', 'mitsubishi',
+        
+        # Общие термины и источники
         'ipo', 'esg', 'ai', 'it', 'rbc', 'ria', 'cbr'
     }
 
